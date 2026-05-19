@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'models/user.dart';
 
 class DatabaseHelper {
   // Singleton pattern: Đảm bảo chỉ có 1 instance DatabaseHelper
@@ -30,6 +31,22 @@ class DatabaseHelper {
       path,
       version: 1, // Version rất quan trọng cho việc nâng cấp sau này
       onCreate: _onCreate, // Hàm sẽ chạy lần đầu để tạo bảng
+      onOpen: (db) async {
+        // Kiểm tra xem đã có user nào chưa mỗi khi mở DB
+        final count = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM users'),
+        );
+        if (count == 0) {
+          await db.insert('users', {
+            'email': 'test@example.com',
+            'password_hash': 'hashed_password_here',
+            'name': 'Người dùng 1',
+            'date_of_birth': '1990-01-01',
+            'gender': 'Male',
+            'height': 170.0,
+          });
+        }
+      },
     );
   }
 
@@ -152,6 +169,16 @@ class DatabaseHelper {
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
       )
     ''');
+
+    // Thêm 1 user mặc định
+    await db.insert('users', {
+      'email': 'test@example.com',
+      'password_hash': 'hashed_password_here',
+      'name': 'Người dùng 1',
+      'date_of_birth': '1990-01-01',
+      'gender': 'Male',
+      'height': 170.0,
+    });
   }
 
   // Hàm đóng database khi không cần thiết
@@ -159,5 +186,26 @@ class DatabaseHelper {
     if (_database != null) {
       await _database!.close();
     }
+  }
+
+  // ================= CRUD cho Users =================
+
+  // Thêm 1 User
+  Future<int> insertUser(User user) async {
+    final db = await database;
+    return await db.insert(
+      'users',
+      user.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // Lấy tất cả Users
+  Future<List<User>> getAllUsers() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('users');
+    return List.generate(maps.length, (i) {
+      return User.fromMap(maps[i]);
+    });
   }
 }

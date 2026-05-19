@@ -15,6 +15,7 @@ class User {
     required this.gender,
   });
 
+  // Chuyển từ Map (database) thành Object Note
   Map<String, dynamic> toMap() {
     return {
       'user_id': userId,
@@ -26,6 +27,7 @@ class User {
     };
   }
 
+  // Chuyển từ Object Note thành Map (để lưu vào database)
   factory User.fromMap(Map<String, dynamic> map) {
     return User(
       userId: map['user_id'],

@@ -660,12 +660,44 @@
 //         ),
 //       ],
 //     );
-//   }
+//   }ư
 // }
 
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/home_screen.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'app.dart';
+
+// Gọi hàm này khi app start
+void checkAndCreateDatabase() async {
+  try {
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final path = join(documentsDir.path, 'frontend.db'); // đặt tên phù hợp
+
+    // Tạo database ngay lập tức
+    Database db = await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        print('✅ Database vừa được tạo!');
+        // Tạo bảng mẫu để test
+        await db.execute('''
+          CREATE TABLE test_table (
+            id INTEGER PRIMARY KEY,
+            name TEXT
+          )
+        ''');
+      },
+    );
+
+    print('✅ Database path: $path');
+    await db.close();
+  } catch (e) {
+    print('❌ Lỗi: $e');
+  }
+}
 
 void main() {
   runApp(const MyApp());
