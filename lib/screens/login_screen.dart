@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:frontend/provider/user_provider.dart';
+import 'package:frontend/data/controller/user_controller.dart';
+import 'package:frontend/data/models/user.dart';
 import 'package:frontend/screens/signup_screen.dart';
+import 'package:frontend/screens/main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -9,6 +14,92 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final UserController _userController = UserController();
+
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    final String email = _emailController.text.trim();
+    final String password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Vui lòng điền đầy đủ email và mật khẩu."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Định dạng email không hợp lệ."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final User? user = await _userController.getUserByEmail(email);
+      if (user != null && user.passwordHash == password) {
+        if (!mounted) return;
+        Provider.of<UserProvider>(context, listen: false).setUser(user);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Chào mừng ${user.name} trở lại!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MainScreen()),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Email hoặc mật khẩu không chính xác."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Đã xảy ra lỗi: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -19,10 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(children: [const SizedBox(width: 12)]),
               const SizedBox(height: 40),
-
-              // 2. Lời chào
               const Text(
                 "Chào mừng trở lại",
                 style: TextStyle(
@@ -42,37 +130,47 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 40),
 
-              // 3. Form Nhập liệu: Email
+              // Form Nhập liệu: Email
               _buildLabelRow("Email"),
               _buildTextField(
+                controller: _emailController,
                 hint: "ten@email.com",
                 prefixIcon: Icons.email_outlined,
+                keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 20),
 
-              // 4. Form Nhập liệu: Mật khẩu (Có nút Quên mật khẩu)
-              _buildLabelRow("Mật khẩu", trailingText: "Quên mật khẩu?"),
+              // Form Nhập liệu: Mật khẩu
+              _buildLabelRow("Mật khẩu"),
               _buildTextField(
+                controller: _passwordController,
                 hint: "••••••••",
                 prefixIcon: Icons.lock_outline,
-                isPassword: true,
-                suffixIcon: Icons.visibility_outlined,
+                isPassword: _obscurePassword,
+                suffixIcon: _obscurePassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                onSuffixIconPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
               ),
               const SizedBox(height: 32),
 
-              // 5. Nút Đăng nhập
+              // Nút Đăng nhập
               Container(
                 decoration: BoxDecoration(
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF0F75F4).withOpacity(0.3),
+                      color: const Color(0xFF0F75F4).withAlpha(50),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0F75F4),
                     foregroundColor: Colors.white,
@@ -82,22 +180,32 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     elevation: 0,
                   ),
-                  child: const Text(
-                    "Đăng nhập",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : const Text(
+                          "Đăng nhập",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
-              SizedBox(height: 250),
+              const SizedBox(height: 40),
               Center(
                 child: GestureDetector(
                   onTap: () {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (context) {
-                          return const SignUpScreen();
-                        },
+                        builder: (context) => const SignUpScreen(),
                       ),
                     );
                   },
@@ -125,63 +233,50 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // --- CÁC HÀM XÂY DỰNG WIDGET DÙNG CHUNG ---
-
-  // Hàm tạo dòng Label (Hỗ trợ nút "Quên mật khẩu" bên phải)
-  Widget _buildLabelRow(String text, {String? trailingText}) {
+  Widget _buildLabelRow(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0, left: 4.0, right: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          if (trailingText != null)
-            GestureDetector(
-              onTap: () {},
-              child: Text(
-                trailingText,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F75F4),
-                ),
-              ),
-            ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey[800],
+        ),
       ),
     );
   }
 
-  // Hàm tạo Ô nhập liệu (Hỗ trợ Prefix và Suffix Icon)
   Widget _buildTextField({
+    required TextEditingController controller,
     required String hint,
     required IconData prefixIcon,
     bool isPassword = false,
     IconData? suffixIcon,
+    VoidCallback? onSuffixIconPressed,
+    TextInputType? keyboardType,
   }) {
     return TextField(
+      controller: controller,
       obscureText: isPassword,
+      keyboardType: keyboardType,
       style: const TextStyle(fontSize: 16),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: Colors.grey[400]),
         filled: true,
-        fillColor: const Color(0xFFF0F1F5), // Xám nhạt
+        fillColor: const Color(0xFFF0F1F5),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 18,
         ),
-        prefixIcon: Icon(prefixIcon, color: Colors.grey[600]), // Icon bên trái
+        prefixIcon: Icon(prefixIcon, color: Colors.grey[600]),
         suffixIcon: suffixIcon != null
-            ? Icon(suffixIcon, color: Colors.grey[600])
-            : null, // Icon bên phải
+            ? IconButton(
+                icon: Icon(suffixIcon, color: Colors.grey[600]),
+                onPressed: onSuffixIconPressed,
+              )
+            : null,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,

@@ -13,18 +13,18 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [
-    const HomeScreen(),
-    const LogScreen(),
-    const ProfileScreen(),
+  final List<Widget> _pages = const [
+    HomeScreen(),
+    LogScreen(),
+    ProfileScreen(),
   ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // extendBody: true,
       body: IndexedStack(
         index: _currentIndex,
-        children: const [HomeScreen(), LogScreen(), ProfileScreen()],
+        children: _pages,
       ),
       bottomNavigationBar: _buildBottomBar(),
     );
@@ -48,6 +48,11 @@ class _MainScreenState extends State<MainScreen> {
             fontSize: 11,
           );
         }
+        return const TextStyle(
+          color: Colors.grey,
+          fontWeight: FontWeight.w500,
+          fontSize: 11,
+        );
       }),
       destinations: const [
         NavigationDestination(

@@ -1,19 +1,159 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/data/controller/user_controller.dart';
+import 'package:frontend/data/models/user.dart';
 import 'package:frontend/screens/login_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
 
   @override
-  State<SignUpScreen> createState() => _RegisterScreenState();
+  State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _RegisterScreenState extends State<SignUpScreen> {
+class _SignUpScreenState extends State<SignUpScreen> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
+  final UserController _userController = UserController();
+
+  bool _agreeToTerms = false;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleRegister() async {
+    final String name = _nameController.text.trim();
+    final String email = _emailController.text.trim();
+    final String password = _passwordController.text.trim();
+    final String confirmPassword = _confirmPasswordController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Vui lòng điền đầy đủ tất cả thông tin."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Định dạng email không hợp lệ."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Mật khẩu phải dài ít nhất 6 ký tự."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Mật khẩu xác nhận không khớp."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (!_agreeToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Bạn cần đồng ý với Điều khoản & Chính sách để tiếp tục."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final User? existingUser = await _userController.getUserByEmail(email);
+      if (existingUser != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Email này đã được đăng ký trước đó."),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final User newUser = User(
+        email: email,
+        passwordHash: password,
+        name: name,
+        dateOfBirth: '1998-05-15',
+        gender: 'Female',
+      );
+
+      final int resultId = await _userController.insertUser(newUser);
+      if (resultId > 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Đăng ký tài khoản thành công!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Đăng ký thất bại. Vui lòng thử lại."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Đã xảy ra lỗi khi tạo tài khoản: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFF), // Nền xám/xanh siêu nhạt
-
+      backgroundColor: const Color(0xFFFAFBFF),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
@@ -43,19 +183,34 @@ class _RegisterScreenState extends State<SignUpScreen> {
               const SizedBox(height: 32),
 
               _buildLabel("HỌ VÀ TÊN"),
-              _buildTextField("Nguyễn Văn A"),
+              _buildTextField(
+                controller: _nameController,
+                hint: "Nguyễn Văn A",
+              ),
               const SizedBox(height: 16),
 
               _buildLabel("EMAIL"),
-              _buildTextField("example@vitalis.com"),
+              _buildTextField(
+                controller: _emailController,
+                hint: "example@vitalis.com",
+                keyboardType: TextInputType.emailAddress,
+              ),
               const SizedBox(height: 16),
 
               _buildLabel("MẬT KHẨU"),
-              _buildTextField("••••••••", isPassword: true),
+              _buildTextField(
+                controller: _passwordController,
+                hint: "••••••••",
+                isPassword: true,
+              ),
               const SizedBox(height: 16),
 
               _buildLabel("XÁC NHẬN MẬT KHẨU"),
-              _buildTextField("••••••••", isPassword: true),
+              _buildTextField(
+                controller: _confirmPasswordController,
+                hint: "••••••••",
+                isPassword: true,
+              ),
               const SizedBox(height: 20),
 
               Row(
@@ -65,8 +220,12 @@ class _RegisterScreenState extends State<SignUpScreen> {
                     width: 24,
                     height: 24,
                     child: Checkbox(
-                      value: false,
-                      onChanged: (v) {},
+                      value: _agreeToTerms,
+                      onChanged: (bool? val) {
+                        setState(() {
+                          _agreeToTerms = val ?? false;
+                        });
+                      },
                       activeColor: const Color(0xFF0F75F4),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(4),
@@ -95,9 +254,8 @@ class _RegisterScreenState extends State<SignUpScreen> {
               ),
               const SizedBox(height: 24),
 
-              // 4. Nút Đăng ký chính
               ElevatedButton(
-                onPressed: () {},
+                onPressed: _isLoading ? null : _handleRegister,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF0F75F4),
                   foregroundColor: Colors.white,
@@ -107,26 +265,24 @@ class _RegisterScreenState extends State<SignUpScreen> {
                   ),
                   elevation: 0,
                 ),
-                child: const Text(
-                  "Đăng ký",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Text(
+                        "Đăng ký",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
               const SizedBox(height: 28),
-
-              // 5. Đường kẻ phân cách
-              Row(
-                children: [
-                  Expanded(
-                    child: Divider(color: Colors.grey[300], thickness: 1),
-                  ),
-
-                  Expanded(
-                    child: Divider(color: Colors.grey[300], thickness: 1),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
 
               Center(
                 child: InkWell(
@@ -134,9 +290,7 @@ class _RegisterScreenState extends State<SignUpScreen> {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (context) {
-                          return const LoginScreen();
-                        },
+                        builder: (context) => const LoginScreen(),
                       ),
                     );
                   },
@@ -164,9 +318,6 @@ class _RegisterScreenState extends State<SignUpScreen> {
     );
   }
 
-  // --- CÁC HÀM XÂY DỰNG WIDGET DÙNG CHUNG ---
-
-  // Hàm tạo Label (Tiêu đề nhỏ trên mỗi ô nhập)
   Widget _buildLabel(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0, left: 4.0),
@@ -182,50 +333,29 @@ class _RegisterScreenState extends State<SignUpScreen> {
     );
   }
 
-  // Hàm tạo Ô nhập liệu (TextField)
-  Widget _buildTextField(String hint, {bool isPassword = false}) {
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    bool isPassword = false,
+    TextInputType? keyboardType,
+  }) {
     return TextField(
+      controller: controller,
       obscureText: isPassword,
+      keyboardType: keyboardType,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: Colors.grey[400]),
         filled: true,
-        fillColor: const Color(
-          0xFFF0F1F5,
-        ), // Màu xám nhạt đặc trưng của iOS/App sức khỏe
+        fillColor: const Color(0xFFF0F1F5),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none, // Bỏ viền đen mặc định
+          borderSide: BorderSide.none,
         ),
-      ),
-    );
-  }
-
-  // Hàm tạo Nút Social (Google/Apple)
-  Widget _buildSocialButton(String text, IconData icon) {
-    return OutlinedButton.icon(
-      onPressed: () {},
-      icon: Icon(icon, color: Colors.black, size: 24),
-      label: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.black,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        side: BorderSide(
-          color: Colors.grey[200]!,
-          width: 1.5,
-        ), // Viền xám rất nhạt
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        elevation: 0,
       ),
     );
   }

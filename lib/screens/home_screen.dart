@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/log_screen.dart';
-import 'package:frontend/screens/profile_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:frontend/provider/user_provider.dart';
+import 'package:frontend/data/database_helper.dart';
+import 'package:frontend/data/models/activity.dart';
+import 'package:frontend/data/models/sleep_log.dart';
+import 'package:frontend/screens/activity_screen.dart';
+import 'package:frontend/screens/sleep_screen.dart';
+import 'package:frontend/screens/nutrition_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -11,132 +17,167 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
+  final DatabaseHelper _db = DatabaseHelper();
 
-  String _userName = '';
-  int _currentSteps = 0;
+  // Stats đọc từ SQLite
+  int _steps = 0;
   int _targetSteps = 10000;
-  int _heartRate = 0;
-  String _sleepTime = '';
+  int _caloriesBurned = 0;
+  int? _heartRate;
+  String _sleepText = '--';
   int _currentWater = 0;
-  int _targetWater = 2000;
+  final int _targetWater = 2000;
 
   @override
   void initState() {
     super.initState();
-    _fetchDataFromApi();
+    _loadStats();
   }
 
-  Future<void> _fetchDataFromApi() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _loadStats() async {
+    setState(() => _isLoading = true);
 
-    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    final user = Provider.of<UserProvider>(context, listen: false).getUser();
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    final int userId = user.userId ?? 0;
+
+    // Đọc song song từ DB
+    final results = await Future.wait([
+      _db.getTodayActivity(userId),
+      _db.getLastSleep(userId),
+      _db.getLatestHeartRate(userId),
+      _db.getLatestBodyMeasurement(userId),
+    ]);
+
+    if (!mounted) return;
+
+    final Activity? activity = results[0] as Activity?;
+    final SleepLog? sleep = results[1] as SleepLog?;
+    final int? heartRate = results[2] as int?;
 
     setState(() {
-      _userName = 'Minh Quân';
-      _currentSteps = 7420;
-      _heartRate = 72;
-      _sleepTime = '7h 20m';
-      _currentWater = 1250;
+      _steps = activity?.steps ?? 0;
+      _caloriesBurned = activity?.caloriesBurned ?? 0;
+      _heartRate = heartRate;
+      _sleepText = sleep?.durationFormatted ?? '--';
       _isLoading = false;
     });
   }
 
   void _addWater(int amount) {
     setState(() {
-      if (_currentWater + amount <= _targetWater) {
-        _currentWater += amount;
-      } else {
-        _currentWater = _targetWater;
-      }
+      _currentWater = (_currentWater + amount).clamp(0, _targetWater);
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = Provider.of<UserProvider>(context).getUser();
+    final String name = user?.name ?? '';
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
             )
-          : SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 32),
-                  _buildSimpleHeader(),
-                  const SizedBox(height: 24),
-                  StepProgressCard(
-                    current: _currentSteps,
-                    target: _targetSteps,
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(child: HeartRateCard(bpm: _heartRate)),
-                      const SizedBox(width: 16),
-                      Expanded(child: SleepCard(duration: _sleepTime)),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  WaterIntakeCard(
-                    current: _currentWater,
-                    target: _targetWater,
-                    onAddWater: () =>
-                        _addWater(250), // Truyền hàm xử lý xuống thẻ
-                  ),
-                  const SizedBox(height: 24),
-                  const WorkoutBanner(),
-                  const SizedBox(height: 32),
-                  _buildSectionTitle('Phân tích tuần này'),
-                  const SizedBox(height: 16),
-                  const WeeklyAnalysisCard(),
-                  const SizedBox(height: 100),
-                ],
+          : RefreshIndicator(
+              onRefresh: _loadStats,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 32),
+                    _buildHeader(name),
+                    const SizedBox(height: 24),
+
+                    // Bước chân
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ActivityScreen(),
+                        ),
+                      ).then((_) => _loadStats()),
+                      child: StepProgressCard(
+                        current: _steps,
+                        target: _targetSteps,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Nhịp tim & Giấc ngủ
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {},
+                            child: HeartRateCard(bpm: _heartRate),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const SleepScreen(),
+                              ),
+                            ).then((_) => _loadStats()),
+                            child: SleepCard(duration: _sleepText),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Nước uống
+                    WaterIntakeCard(
+                      current: _currentWater,
+                      target: _targetWater,
+                      onAddWater: () => _addWater(250),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Calo đốt hôm nay
+                    _buildCalorieCard(),
+                    const SizedBox(height: 24),
+
+                    // Banner dinh dưỡng
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const NutritionScreen(),
+                        ),
+                      ),
+                      child: const WorkoutBanner(),
+                    ),
+                    const SizedBox(height: 32),
+                    _buildSectionTitle('Phân tích tuần này'),
+                    const SizedBox(height: 16),
+                    const WeeklyAnalysisCard(),
+                    const SizedBox(height: 100),
+                  ],
+                ),
               ),
             ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      leading: const Padding(
-        padding: EdgeInsets.all(8.0),
-        child: CircleAvatar(
-          backgroundImage: NetworkImage('https://i.pravatar.cc/150?u=tuantran'),
-        ),
-      ),
-      title: const Text(
-        'The Sanctuary',
-        style: TextStyle(
-          color: Colors.black,
-          fontWeight: FontWeight.bold,
-          fontSize: 18,
-        ),
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.notifications, color: Colors.black),
-          onPressed: () {},
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSimpleHeader() {
+  Widget _buildHeader(String name) {
     final hour = DateTime.now().hour;
-    final String greeting = hour < 12
+    final greeting = hour < 12
         ? 'Chào buổi sáng'
         : hour < 18
         ? 'Chào buổi chiều'
         : 'Chào buổi tối';
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -150,10 +191,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: 6),
-
-        // Tên người dùng to, đậm
         Text(
-          _userName.isEmpty ? 'Xin chào 👋' : '$_userName 👋',
+          name.isEmpty ? 'Xin chào 👋' : '$name 👋',
           style: const TextStyle(
             fontSize: 30,
             fontWeight: FontWeight.w800,
@@ -165,35 +204,83 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF1A1A1A),
+  Widget _buildCalorieCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.local_fire_department,
+              color: Colors.orange,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CALO ĐỐT HÔM NAY',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$_caloriesBurned kcal',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: Colors.orange),
+        ],
       ),
     );
   }
+
+  Widget _buildSectionTitle(String title) => Text(
+    title,
+    style: const TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.bold,
+      color: Color(0xFF1A1A1A),
+    ),
+  );
 }
 
-// ================= CÁC WIDGET CON (STATELESS) =================
+// ===== WIDGETS CON =====
 
-// 1. Step Progress Card
 class StepProgressCard extends StatelessWidget {
   final int current;
   final int target;
-
   const StepProgressCard({
-    Key? key,
+    super.key,
     required this.current,
     required this.target,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
-    double progress = current / target;
-    int remaining = target - current;
+    final double progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0;
+    final int remaining = (target - current).clamp(0, target);
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -202,7 +289,7 @@ class StepProgressCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(32),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withAlpha(8),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -227,7 +314,7 @@ class StepProgressCard extends StatelessWidget {
                   text: TextSpan(
                     children: [
                       TextSpan(
-                        text: '${_formatNumber(current)}',
+                        text: _fmt(current),
                         style: const TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w900,
@@ -246,9 +333,11 @@ class StepProgressCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Còn ${_formatNumber(remaining)} bước nữa',
-                  style: const TextStyle(
-                    color: Color(0xFF198754),
+                  current == 0
+                      ? 'Chưa ghi nhận hôm nay'
+                      : 'Còn ${_fmt(remaining)} bước nữa',
+                  style: TextStyle(
+                    color: current == 0 ? Colors.grey : const Color(0xFF198754),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -283,19 +372,15 @@ class StepProgressCard extends StatelessWidget {
     );
   }
 
-  String _formatNumber(int number) {
-    // Hàm phụ trợ để hiển thị dấu phẩy hàng nghìn (ví dụ 7420 -> 7,420)
-    return number.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (Match m) => '${m[1]},',
-    );
-  }
+  String _fmt(int n) => n.toString().replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+    (m) => '${m[1]},',
+  );
 }
 
-// 2. Heart Rate Card
 class HeartRateCard extends StatelessWidget {
-  final int bpm;
-  const HeartRateCard({Key? key, required this.bpm}) : super(key: key);
+  final int? bpm;
+  const HeartRateCard({super.key, this.bpm});
 
   @override
   Widget build(BuildContext context) {
@@ -303,18 +388,14 @@ class HeartRateCard extends StatelessWidget {
       icon: Icons.favorite,
       iconColor: Colors.red,
       title: 'BPM',
-      value: bpm.toString(),
-      subtitle: 'Nhịp tim ổn định',
+      value: bpm != null ? bpm.toString() : '--',
+      subtitle: bpm != null ? 'Nhịp tim ổn định' : 'Chưa đo',
       bottomWidget: Container(
         height: 12,
-        width: double.infinity,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
-          gradient: LinearGradient(
-            colors: [
-              Colors.blue.withOpacity(0.3),
-              Colors.blue.withOpacity(0.1),
-            ],
+          gradient: const LinearGradient(
+            colors: [Color(0x4D2196F3), Color(0x1A2196F3)],
           ),
         ),
       ),
@@ -322,10 +403,9 @@ class HeartRateCard extends StatelessWidget {
   }
 }
 
-// 3. Sleep Card
 class SleepCard extends StatelessWidget {
   final String duration;
-  const SleepCard({Key? key, required this.duration}) : super(key: key);
+  const SleepCard({super.key, required this.duration});
 
   @override
   Widget build(BuildContext context) {
@@ -334,16 +414,16 @@ class SleepCard extends StatelessWidget {
       iconColor: Colors.orange,
       title: 'GIẤC NGỦ',
       value: duration,
-      subtitle: 'Chất lượng: Tốt',
+      subtitle: duration == '--' ? 'Chưa ghi' : 'Chạm để xem',
       bottomWidget: Row(
         children: List.generate(
           4,
-          (index) => Expanded(
+          (i) => Expanded(
             child: Container(
               height: 4,
               margin: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
-                color: index < 3 ? Colors.orange : Colors.grey.shade200,
+                color: i < 3 ? Colors.orange : Colors.grey.shade200,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -354,7 +434,6 @@ class SleepCard extends StatelessWidget {
   }
 }
 
-// Helper for Small Cards
 Widget _buildSmallCard({
   required IconData icon,
   required Color iconColor,
@@ -366,7 +445,7 @@ Widget _buildSmallCard({
   return Container(
     padding: const EdgeInsets.all(20),
     decoration: BoxDecoration(
-      color: const Color(0xFFF1F4FA).withOpacity(0.5),
+      color: const Color(0xFFF1F4FA).withAlpha(128),
       borderRadius: BorderRadius.circular(28),
     ),
     child: Column(
@@ -409,29 +488,23 @@ Widget _buildSmallCard({
   );
 }
 
-// 4. Water Intake Card
 class WaterIntakeCard extends StatelessWidget {
   final int current;
   final int target;
-  final VoidCallback onAddWater; // Nhận sự kiện bấm nút từ cha
+  final VoidCallback onAddWater;
 
   const WaterIntakeCard({
-    Key? key,
+    super.key,
     required this.current,
     required this.target,
     required this.onAddWater,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Format số
-    String currentFormatted = current.toString().replaceAllMapped(
+    String fmt(int n) => n.toString().replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (Match m) => '${m[1]},',
-    );
-    String targetFormatted = target.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (Match m) => '${m[1]},',
+      (m) => '${m[1]},',
     );
 
     return Container(
@@ -469,14 +542,14 @@ class WaterIntakeCard extends StatelessWidget {
                     style: const TextStyle(color: Colors.black),
                     children: [
                       TextSpan(
-                        text: currentFormatted,
+                        text: fmt(current),
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       TextSpan(
-                        text: ' / $targetFormatted ml',
+                        text: ' / ${fmt(target)} ml',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.grey,
@@ -489,7 +562,7 @@ class WaterIntakeCard extends StatelessWidget {
             ),
           ),
           ElevatedButton.icon(
-            onPressed: onAddWater, // Gọi hàm của cha khi bấm
+            onPressed: onAddWater,
             icon: const Icon(Icons.add, size: 18),
             label: const Text('250ml'),
             style: ElevatedButton.styleFrom(
@@ -507,23 +580,21 @@ class WaterIntakeCard extends StatelessWidget {
   }
 }
 
-// 5. Workout Banner (Tạm thời không cần state động)
 class WorkoutBanner extends StatelessWidget {
-  const WorkoutBanner({Key? key}) : super(key: key);
+  const WorkoutBanner({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      height: 300,
+      height: 200,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(32),
         image: const DecorationImage(
           image: NetworkImage(
-            'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80',
+            'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=800',
           ),
           fit: BoxFit.cover,
-          alignment: Alignment.bottomCenter,
         ),
       ),
       child: Container(
@@ -532,31 +603,34 @@ class WorkoutBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(32),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
-            colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+            colors: [Colors.black.withAlpha(178), Colors.transparent],
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Đã đến lúc cho\nmột bài tập giãn\ncơ nhẹ?',
+              'Dinh dưỡng hôm nay',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
-              'Chỉ cần 5 phút để giảm\ncăng thẳng cho cột sống\ncủa bạn.',
+              'Chạm để ghi nhận bữa ăn và theo dõi calo.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withAlpha(204),
                 fontSize: 13,
               ),
             ),
             const Spacer(),
             ElevatedButton(
-              onPressed: () {},
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NutritionScreen()),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFDCE4FF),
                 foregroundColor: const Color(0xFF0F75F4),
@@ -565,7 +639,7 @@ class WorkoutBanner extends StatelessWidget {
                 ),
               ),
               child: const Text(
-                'Bắt đầu ngay',
+                'Xem dinh dưỡng',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -576,9 +650,8 @@ class WorkoutBanner extends StatelessWidget {
   }
 }
 
-// 6. Weekly Analysis Card (Tạm thời không cần state động)
 class WeeklyAnalysisCard extends StatelessWidget {
-  const WeeklyAnalysisCard({Key? key}) : super(key: key);
+  const WeeklyAnalysisCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -608,7 +681,7 @@ class WeeklyAnalysisCard extends StatelessWidget {
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
                 Text(
-                  'Bạn đã đi bộ nhiều hơn 12% so với tuần trước.',
+                  'Ghi nhận vận động hàng ngày để xem thống kê.',
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ],
