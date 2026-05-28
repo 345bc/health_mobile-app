@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/models/user.dart';
-import 'package:frontend/screens/login_screen.dart';
-
+import 'package:frontend/screens/sign-in_screen.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -46,7 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         onPressed: () {
           // Clear active user session
           Provider.of<UserProvider>(context, listen: false).clearUser();
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("Đã đăng xuất thành công."),
@@ -57,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           // Redirect to login screen, clearing navigation stack
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            MaterialPageRoute(builder: (context) => const SigninScreen()),
             (route) => false,
           );
         },
@@ -89,8 +88,10 @@ class ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String displayName = user?.name ?? 'Lê Minh Anh';
-    final String displayAge = user != null ? '26 tuổi' : '26 tuổi'; // Mocks/Default age
+    final String displayName = user?.user_name ?? '';
+    final String displayAge = user != null
+        ? '26 tuổi'
+        : '26 tuổi'; // Mocks/Default age
     final String displayBlood = 'Nhóm máu O+';
 
     return Column(
@@ -137,11 +138,13 @@ class PersonalInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine info based on database user
-    final String gender = user?.gender == 'Female' ? 'Nữ' : (user?.gender == 'Male' ? 'Nam' : 'Khác');
-    final String dob = user?.dateOfBirth ?? '15/05/1998';
-    final String height = '165 cm';
-    final String weight = '58.2 kg';
+    // // Determine info based on database user
+    // final String gender = user?.gender == 'Female'
+    //     ? 'Nữ'
+    //     : (user?.gender == 'Male' ? 'Nam' : 'Khác');
+    // final String dob = user?.dateOfBirth ?? '15/05/1998';
+    // final String height = '165 cm';
+    // final String weight = '58.2 kg';
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -168,14 +171,14 @@ class PersonalInfoCard extends StatelessWidget {
                 child: _buildInfoItem(
                   icon: Icons.height,
                   title: 'CHIỀU CAO',
-                  value: height,
+                  value: "height",
                 ),
               ),
               Expanded(
                 child: _buildInfoItem(
                   icon: Icons.monitor_weight,
                   title: 'CÂN NẶNG',
-                  value: weight,
+                  value: "weight",
                 ),
               ),
             ],
@@ -187,14 +190,14 @@ class PersonalInfoCard extends StatelessWidget {
                 child: _buildInfoItem(
                   icon: Icons.person,
                   title: 'GIỚI TÍNH',
-                  value: gender,
+                  value: "nuwx",
                 ),
               ),
               Expanded(
                 child: _buildInfoItem(
                   icon: Icons.cake,
                   title: 'NGÀY SINH',
-                  value: dob,
+                  value: "10",
                 ),
               ),
             ],
@@ -273,10 +276,7 @@ class AppSettingsSection extends StatelessWidget {
                 title: 'Thông báo',
               ),
               const Divider(height: 1, color: Color(0xFFEBECEE), indent: 56),
-              _buildSettingItem(
-                icon: Icons.watch,
-                title: 'Kết nối thiết bị',
-              ),
+              _buildSettingItem(icon: Icons.watch, title: 'Kết nối thiết bị'),
               const Divider(height: 1, color: Color(0xFFEBECEE), indent: 56),
               _buildSettingItem(
                 icon: Icons.lock_outline,

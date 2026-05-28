@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/data/models/user.dart';
-import 'package:frontend/screens/login_screen.dart';
+import 'package:frontend/screens/sign-in_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -14,7 +14,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
   final UserController _userController = UserController();
 
   bool _agreeToTerms = false;
@@ -35,7 +36,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final String password = _passwordController.text.trim();
     final String confirmPassword = _confirmPasswordController.text.trim();
 
-    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+    if (name.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty ||
+        confirmPassword.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Vui lòng điền đầy đủ tất cả thông tin."),
@@ -79,7 +83,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Bạn cần đồng ý với Điều khoản & Chính sách để tiếp tục."),
+          content: Text(
+            "Bạn cần đồng ý với Điều khoản & Chính sách để tiếp tục.",
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -103,15 +109,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
         return;
       }
 
-      final User newUser = User(
-        email: email,
-        passwordHash: password,
-        name: name,
-        dateOfBirth: '1998-05-15',
-        gender: 'Female',
+      final int resultId = await _userController.insertUser(
+        User(email: email, passwordHash: password, user_name: name),
       );
-
-      final int resultId = await _userController.insertUser(newUser);
       if (resultId > 0) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -122,7 +122,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         );
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          MaterialPageRoute(builder: (context) => const SigninScreen()),
         );
       } else {
         if (!mounted) return;
@@ -290,7 +290,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
+                        builder: (context) => const SigninScreen(),
                       ),
                     );
                   },

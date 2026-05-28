@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
@@ -5,21 +6,27 @@ import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/data/models/user.dart';
 import 'package:frontend/screens/signup_screen.dart';
 import 'package:frontend/screens/main_screen.dart';
+import 'package:frontend/services/user-service.dart';
+import 'package:frontend/services/api_service.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SigninScreen extends StatefulWidget {
+  const SigninScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SigninScreen> createState() => _SigninScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SigninScreenState extends State<SigninScreen> {
+  final ApiService apiService = ApiService();
+  late final UserService userService = UserService(apiService);
+
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final UserController _userController = UserController();
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -28,67 +35,151 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  Future<void> _handleSignin() async {
     final String email = _emailController.text.trim();
     final String password = _passwordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Vui lòng điền đầy đủ email và mật khẩu."),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
-    if (!emailRegex.hasMatch(email)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Định dạng email không hợp lệ."),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
     setState(() {
       _isLoading = true;
+      _error = null;
     });
 
     try {
-      final User? user = await _userController.getUserByEmail(email);
-      if (user != null && user.passwordHash == password) {
+      setState(() {
+        _isLoading = true;
+      }); // Nên bật loading ở đây luôn cho gọn
+
+      final response = await userService.signin(email, password);
+
+      if (response.statusCode == 200) {
+        // Lấy thông tin user thực tế từ Backend trả về (giả sử nằm trong response.data['user'] hoặc response.data)
+        // Nếu BE trả về thẳng object user, bạn chỉnh lại cho đúng cấu trúc JSON nhé
+        final userData = response.data;
+
+        final User? existingUser = await _userController.getUserByEmail(email);
+
         if (!mounted) return;
-        Provider.of<UserProvider>(context, listen: false).setUser(user);
-        
+
+        if (existingUser != null) {
+          Provider.of<UserProvider>(
+            context,
+            listen: false,
+          ).setUser(existingUser);
+        } else {
+          // Chuẩn hóa: Khởi tạo User từ dữ liệu thật của Server trả về
+          final User newUser = User(
+            email: email,
+            passwordHash: password, // Tạm thời giữ logic so sánh pass của bạn
+            user_name: userData['name'],
+          );
+          await _userController.insertUser(newUser);
+
+          if (!mounted) return;
+          Provider.of<UserProvider>(context, listen: false).setUser(newUser);
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Chào mừng ${user.name} trở lại!"),
-            backgroundColor: Colors.green,
-          ),
+          const SnackBar(content: Text('Đăng nhập thành công! 🎉')),
         );
 
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainScreen()),
         );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Email hoặc mật khẩu không chính xác."),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     } catch (e) {
       if (!mounted) return;
+
+      // 1. Trường hợp lỗi do hệ thống mạng hoặc lỗi từ thư viện Dio
+      if (e is DioException) {
+        // TH1: Lỗi mất mạng, nghẽn mạng, timeout kết nối hoặc không có phản hồi từ Server
+        if (e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.unknown ||
+            e.response == null) {
+          final offlineUser = await _userController.getUserByEmail(email);
+          if (!mounted) return;
+
+          if (offlineUser != null) {
+            if (offlineUser.passwordHash == password) {
+              Provider.of<UserProvider>(
+                context,
+                listen: false,
+              ).setUser(offlineUser);
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Đang chạy ở chế độ ngoại tuyến (Offline)"),
+                  backgroundColor: Colors.blueGrey,
+                  behavior: SnackBarBehavior.floating,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MainScreen()),
+              );
+              return;
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Sai mật khẩu (Chế độ ngoại tuyến)"),
+                  backgroundColor: Colors.orange,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+              return;
+            }
+          }
+
+          // Nếu mất mạng hoàn toàn nhưng thiết bị chưa có data user này
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Không có kết nối mạng và tài khoản chưa được lưu trên thiết bị này!",
+              ),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+
+        // TH2: Có mạng bình thường, nhưng Server chủ động trả về lỗi (400, 401, sai mật khẩu, unauthenticated...)
+        if (e.response != null && e.response?.data is Map<String, dynamic>) {
+          final Map<String, dynamic> errorData =
+              e.response!.data as Map<String, dynamic>;
+          final String serverMessage =
+              errorData['message'] ?? 'Đã xảy ra lỗi khi đăng nhập';
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                serverMessage,
+              ), // Hiển thị chuẩn chữ "Unauthenticated" hoặc "Sai mật khẩu"
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+      }
+
+      // 2. Dự phòng cho các lỗi khác không phải từ Dio (Lỗi code logic nội bộ, lỗi parse dữ liệu,...)
+      String fallbackMessage = 'Đã xảy ra lỗi hệ thống';
+      if (e is Map<String, dynamic>) {
+        fallbackMessage = e['message'] ?? fallbackMessage;
+      } else {
+        fallbackMessage = e.toString();
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Đã xảy ra lỗi: $e"),
-          backgroundColor: Colors.red,
+          content: Text(fallbackMessage),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
@@ -170,7 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _handleLogin,
+                  onPressed: _isLoading ? null : _handleSignin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0F75F4),
                     foregroundColor: Colors.white,

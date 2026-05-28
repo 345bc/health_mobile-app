@@ -30,7 +30,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
   Future<void> _load() async {
     setState(() => _isLoading = true);
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null) { setState(() => _isLoading = false); return; }
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
     final int uid = user.userId!;
 
     final results = await Future.wait([
@@ -48,36 +51,54 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
   Future<void> _showLogDialog() async {
     final stepsCtrl = TextEditingController(
-        text: _todayActivity?.steps.toString() ?? '');
+      text: _todayActivity?.steps.toString() ?? '',
+    );
     final distanceCtrl = TextEditingController(
-        text: _todayActivity?.distance.toString() ?? '');
+      text: _todayActivity?.distance.toString() ?? '',
+    );
     final calCtrl = TextEditingController(
-        text: _todayActivity?.caloriesBurned.toString() ?? '');
+      text: _todayActivity?.caloriesBurned.toString() ?? '',
+    );
 
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Ghi nhận vận động hôm nay'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          _dialogField(stepsCtrl, 'Số bước chân', 'bước',
-              TextInputType.number),
-          const SizedBox(height: 12),
-          _dialogField(distanceCtrl, 'Quãng đường', 'km',
-              const TextInputType.numberWithOptions(decimal: true)),
-          const SizedBox(height: 12),
-          _dialogField(
-              calCtrl, 'Calo đốt', 'kcal', TextInputType.number),
-        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _dialogField(
+              stepsCtrl,
+              'Số bước chân',
+              'bước',
+              TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            _dialogField(
+              distanceCtrl,
+              'Quãng đường',
+              'km',
+              const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 12),
+            _dialogField(calCtrl, 'Calo đốt', 'kcal', TextInputType.number),
+          ],
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Hủy')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F75F4)),
+              backgroundColor: const Color(0xFF0F75F4),
+            ),
             onPressed: () async {
-              final user = Provider.of<UserProvider>(context, listen: false).getUser();
+              final user = Provider.of<UserProvider>(
+                context,
+                listen: false,
+              ).getUser();
               if (user == null) return;
               await _ctrl.upsertTodayActivity(
                 userId: user.userId!,
@@ -88,8 +109,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               if (ctx.mounted) Navigator.pop(ctx);
               _load();
             },
-            child: const Text('Lưu',
-                style: TextStyle(color: Colors.white)),
+            child: const Text('Lưu', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -101,8 +121,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: const Text('Vận động',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Vận động',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
@@ -111,11 +133,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
         onPressed: _showLogDialog,
         backgroundColor: const Color(0xFF0F75F4),
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('Ghi hôm nay',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        label: const Text(
+          'Ghi hôm nay',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -123,15 +149,20 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 children: [
                   _buildTodayCard(),
                   const SizedBox(height: 24),
-                  const Text('7 NGÀY GẦN NHẤT',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF6C757D),
-                          letterSpacing: 1)),
+                  const Text(
+                    '7 NGÀY GẦN NHẤT',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6C757D),
+                      letterSpacing: 1,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   if (_recentActivities.isEmpty)
-                    _emptyState('Chưa có dữ liệu vận động.\nNhấn "Ghi hôm nay" để bắt đầu!')
+                    _emptyState(
+                      'Chưa có dữ liệu vận động.\nNhấn "Ghi hôm nay" để bắt đầu!',
+                    )
                   else
                     ..._recentActivities.map(_buildActivityItem),
                   const SizedBox(height: 80),
@@ -159,72 +190,101 @@ class _ActivityScreenState extends State<ActivityScreen> {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-              color: const Color(0xFF0F75F4).withAlpha(60),
-              blurRadius: 20,
-              offset: const Offset(0, 8))
+            color: const Color(0xFF0F75F4).withAlpha(60),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('HÔM NAY',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'HÔM NAY',
             style: TextStyle(
-                color: Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5)),
-        const SizedBox(height: 8),
-        Row(children: [
-          Text('$steps',
-              style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                '$steps',
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 48,
                   fontWeight: FontWeight.w900,
-                  height: 1)),
-          const SizedBox(width: 8),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('bước', style: TextStyle(color: Colors.white70, fontSize: 14)),
-              Text('chân', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  height: 1,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'bước',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  Text(
+                    'chân',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                ],
+              ),
             ],
           ),
-        ]),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 8,
-            backgroundColor: Colors.white.withAlpha(50),
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.white.withAlpha(50),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text('${(progress * 100).toInt()}% mục tiêu $target bước',
-            style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        const SizedBox(height: 20),
-        Row(children: [
-          _statChip(Icons.local_fire_department, '$cal kcal'),
-          const SizedBox(width: 12),
-          _statChip(Icons.straighten, '${dist.toStringAsFixed(1)} km'),
-        ]),
-      ]),
+          const SizedBox(height: 8),
+          Text(
+            '${(progress * 100).toInt()}% mục tiêu $target bước',
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              _statChip(Icons.local_fire_department, '$cal kcal'),
+              const SizedBox(width: 12),
+              _statChip(Icons.straighten, '${dist.toStringAsFixed(1)} km'),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _statChip(IconData icon, String label) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withAlpha(30),
-          borderRadius: BorderRadius.circular(20),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withAlpha(30),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, color: Colors.white, size: 16),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
         ),
-        child: Row(children: [
-          Icon(icon, color: Colors.white, size: 16),
-          const SizedBox(width: 6),
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-        ]),
-      );
+      ],
+    ),
+  );
 
   Widget _buildActivityItem(Activity a) {
     final date = DateFormat('EEE, d MMM').format(DateTime.parse(a.date));
@@ -236,53 +296,82 @@ class _ActivityScreenState extends State<ActivityScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFEBECEE)),
       ),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
               color: const Color(0xFFE7F1FF),
-              borderRadius: BorderRadius.circular(12)),
-          child: const Icon(Icons.directions_walk,
-              color: Color(0xFF0F75F4), size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(date,
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Color(0xFF111111))),
-            Text('${a.caloriesBurned} kcal  •  ${a.distance.toStringAsFixed(1)} km',
-                style:
-                    const TextStyle(color: Color(0xFF6C757D), fontSize: 12)),
-          ]),
-        ),
-        Text('${a.steps}',
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.directions_walk,
+              color: Color(0xFF0F75F4),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  date,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111111),
+                  ),
+                ),
+                Text(
+                  '${a.caloriesBurned} kcal  •  ${a.distance.toStringAsFixed(1)} km',
+                  style: const TextStyle(
+                    color: Color(0xFF6C757D),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '${a.steps}',
             style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F75F4))),
-        const Text(' bước',
-            style: TextStyle(color: Color(0xFF6C757D), fontSize: 12)),
-      ]),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F75F4),
+            ),
+          ),
+          const Text(
+            ' bước',
+            style: TextStyle(color: Color(0xFF6C757D), fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _emptyState(String msg) => Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 40),
-          child: Column(children: [
-            Icon(Icons.directions_walk,
-                size: 64, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(msg,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
-          ]),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: [
+          Icon(Icons.directions_walk, size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          Text(
+            msg,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+          ),
+        ],
+      ),
+    ),
+  );
 
-  Widget _dialogField(TextEditingController ctrl, String label, String suffix,
-      TextInputType type) {
+  Widget _dialogField(
+    TextEditingController ctrl,
+    String label,
+    String suffix,
+    TextInputType type,
+  ) {
     return TextField(
       controller: ctrl,
       keyboardType: type,

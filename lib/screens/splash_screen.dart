@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/data/models/user.dart';
+import 'package:frontend/screens/home_screen.dart';
+import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/screens/main_screen.dart';
-import 'package:frontend/screens/login_screen.dart';
+import 'package:frontend/screens/sign-in_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,25 +21,31 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _fadeAnim;
   late Animation<double> _scaleAnim;
   late Animation<Offset> _slideAnim;
+  final UserService _userService = UserService(ApiService());
 
   double _progress = 0.0;
 
   @override
   void initState() {
     super.initState();
+    _checkLoginStatus();
 
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
 
-    _fadeAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
+    //animation mờ dần
+    _fadeAnim = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
-    _scaleAnim = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    // animation phóng to
+    _scaleAnim = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
 
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.2),
@@ -44,6 +54,26 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
     _simulateLoading();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    await Future.delayed(Duration(seconds: 2));
+
+    final isLoggedIn = await _userService.isLoggedIn();
+
+    if (mounted) {
+      if (isLoggedIn) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => HomeScreen()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => SigninScreen()),
+        );
+      }
+    }
   }
 
   Future<void> _simulateLoading() async {
@@ -59,7 +89,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _checkAuthAndNavigate() async {
     final userProvider = Provider.of<UserProvider>(context, listen: false);
-    final bool isLoggedIn = userProvider.isLoggedIn;
+    final bool isLoggedIn = await _userService.isLoggedIn();
+
+    if (isLoggedIn) {
+      final userMap = await _userService.getCurrentUser();
+      if (userMap != null) {
+        userProvider.setUser(User.fromJson(userMap));
+      }
+    }
 
     if (!mounted) return;
 
@@ -67,7 +104,7 @@ class _SplashScreenState extends State<SplashScreen>
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            isLoggedIn ? const MainScreen() : const LoginScreen(),
+            isLoggedIn ? const MainScreen() : const SigninScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
             FadeTransition(opacity: animation, child: child),
         transitionDuration: const Duration(milliseconds: 400),
@@ -120,9 +157,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   ),
                                 ],
                               ),
-                              child: const Center(
-                                child: FlutterLogo(size: 56),
-                              ),
+                              child: const Center(child: FlutterLogo(size: 56)),
                             ),
                             const SizedBox(height: 24),
                             const Text(

@@ -1,18 +1,40 @@
-// import 'dart:convert';
-// import 'package:http/http.dart' as http;
-// import '../models/song.dart';
+// import 'dart:ffi';
 
-// class ApiService {
-//   static const String baseUrl = "http://10.0.2.2:8080/identity";
+import 'package:dio/dio.dart';
 
-//   static Future<List<Song>> getSongs() async {
-//     final response = await http.get(Uri.parse("$baseUrl/songs"));
+class ApiService {
+  // static const String baseUrl = "http://127.0.0.1:8080/api/v1";
+  static const String baseUrl = "http://192.168.2.22:8080/api/v1";
+  // static const String baseUrl = "http://10.0.2.2:8080/api/v1";
+  final Dio _dio = Dio();
 
-//     if (response.statusCode == 200) {
-//       List data = jsonDecode(utf8.decode(response.bodyBytes));
-//       return data.map((e) => Song.fromJson(e)).toList();
-//     } else {
-//       throw Exception("Failed to load songs");
-//     }
-//   }
-// }
+  ApiService() {
+    _dio.options = BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+      contentType: Headers.jsonContentType,
+      responseType: ResponseType.json,
+    );
+
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          print("🚀 Gửi Request: [${options.method}] -> ${options.uri}");
+          return handler.next(options);
+        },
+        onResponse: (response, handler) {
+          print(
+            "✅ Nhận Response: [${response.statusCode}] <- ${response.requestOptions.path}",
+          );
+          return handler.next(response);
+        },
+        onError: (DioException e, handler) {
+          print("❌ Lỗi API: [${e.response?.statusCode}] -> ${e.message}");
+          return handler.next(e);
+        },
+      ),
+    );
+  }
+  Dio get dio => _dio;
+}

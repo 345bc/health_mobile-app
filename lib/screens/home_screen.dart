@@ -6,7 +6,7 @@ import 'package:frontend/data/models/activity.dart';
 import 'package:frontend/data/models/sleep_log.dart';
 import 'package:frontend/screens/activity_screen.dart';
 import 'package:frontend/screens/sleep_screen.dart';
-import 'package:frontend/screens/nutrition_screen.dart';
+// import 'package:frontend/screens/nutrition_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<UserProvider>(context).getUser();
-    final String name = user?.name ?? '';
+    final String name = user?.user_name ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
@@ -150,15 +150,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 24),
 
                     // Banner dinh dưỡng
-                    GestureDetector(
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const NutritionScreen(),
-                        ),
-                      ),
-                      child: const WorkoutBanner(),
-                    ),
+                    // GestureDetector(
+                    //   onTap: () => Navigator.push(
+                    //     context,
+                    //     MaterialPageRoute(
+                    //       builder: (_) => const NutritionScreen(),
+                    //     ),
+                    //   ),
+                    //   child: const WorkoutBanner(),
+                    // ),
                     const SizedBox(height: 32),
                     _buildSectionTitle('Phân tích tuần này'),
                     const SizedBox(height: 16),
@@ -626,23 +626,23 @@ class WorkoutBanner extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            ElevatedButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NutritionScreen()),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFDCE4FF),
-                foregroundColor: const Color(0xFF0F75F4),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: const Text(
-                'Xem dinh dưỡng',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
+            // ElevatedButton(
+            //   // onPressed: () => Navigator.push(
+            //   //   context,
+            //   //   MaterialPageRoute(builder: (_) => const NutritionScreen()),
+            //   // ),
+            //   style: ElevatedButton.styleFrom(
+            //     backgroundColor: const Color(0xFFDCE4FF),
+            //     foregroundColor: const Color(0xFF0F75F4),
+            //     shape: RoundedRectangleBorder(
+            //       borderRadius: BorderRadius.circular(20),
+            //     ),
+            //   ),
+            //   child: const Text(
+            //     'Xem dinh dưỡng',
+            //     style: TextStyle(fontWeight: FontWeight.bold),
+            //   ),
+            // ),
           ],
         ),
       ),
