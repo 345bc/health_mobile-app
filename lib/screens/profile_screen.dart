@@ -1,8 +1,15 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/models/user.dart';
+import 'package:frontend/data/models/end_user.dart';
+import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/screens/sign-in_screen.dart';
+import 'package:frontend/screens/editprofile_screen.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -11,6 +18,47 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final UserService _userService = UserService(ApiService());
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchProfileFromServer();
+    });
+  }
+
+  Future<void> _fetchProfileFromServer() async {
+    try {
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+      final User? currentUser = userProvider.getUser();
+      if (currentUser == null || currentUser.userId == null) return;
+
+      final response = await _userService.getEndUserProfile(currentUser.userId!);
+      if (response != null && response.statusCode == 200) {
+        final Map<String, dynamic> responseData = response.data is String
+            ? jsonDecode(response.data)
+            : response.data as Map<String, dynamic>;
+
+        final dynamic data = responseData['data'] ?? responseData;
+        if (data is Map<String, dynamic>) {
+          final EndUser fetchedEndUser = EndUser.fromMap(data);
+          final User updatedUser = currentUser.copyWith(
+            endUser: fetchedEndUser,
+          );
+
+          // Update in local DB
+          await UserController().updateUser(updatedUser);
+
+          // Update in Provider
+          userProvider.setUser(updatedUser);
+        }
+      }
+    } catch (e) {
+      print("Lỗi khi tải thông tin từ server: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userProvider = Provider.of<UserProvider>(context);
@@ -43,21 +91,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
       width: double.infinity,
       child: TextButton.icon(
         onPressed: () {
-          // Clear active user session
-          Provider.of<UserProvider>(context, listen: false).clearUser();
+          showDialog(
+            context: context,
+            builder: (BuildContext dialogContext) {
+              return AlertDialog(
+                title: const Text("Đăng xuất"),
+                content: const Text("Bạn có chắc chắn muốn đăng xuất không?"),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Hủy'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      // Capture contexts and navigators before async call
+                      final navigator = Navigator.of(context);
+                      final scaffoldMessenger = ScaffoldMessenger.of(context);
+                      final userProvider = Provider.of<UserProvider>(
+                        context,
+                        listen: false,
+                      );
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Đã đăng xuất thành công."),
-              backgroundColor: Colors.green,
-            ),
-          );
+                      // Close the dialog using dialogContext
+                      Navigator.pop(dialogContext);
 
-          // Redirect to login screen, clearing navigation stack
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const SigninScreen()),
-            (route) => false,
+                      // Logout from API
+                      await _userService.logout();
+
+                      // Clear session
+                      userProvider.clearUser();
+
+                      // Show success message
+                      scaffoldMessenger.showSnackBar(
+                        const SnackBar(
+                          content: Text("Đã đăng xuất thành công."),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+
+                      // Redirect to login screen
+                      navigator.pushAndRemoveUntil(
+                        MaterialPageRoute(
+                          builder: (context) => const SigninScreen(),
+                        ),
+                        (route) => false,
+                      );
+                    },
+                    child: const Text('Đồng ý'),
+                  ),
+                ],
+              );
+            },
           );
         },
         icon: const Icon(Icons.logout, color: Colors.red),
@@ -88,11 +173,25 @@ class ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String displayName = user?.user_name ?? '';
-    final String displayAge = user != null
-        ? '26 tuổi'
-        : '26 tuổi'; // Mocks/Default age
-    final String displayBlood = 'Nhóm máu O+';
+    final String displayName = user?.user_name ?? 'Chưa cập nhật';
+
+    String displayAge = 'Chưa cập nhật tuổi';
+    if (user?.dateOfBirth != null && user!.dateOfBirth!.isNotEmpty) {
+      try {
+        final dob = DateTime.parse(user!.dateOfBirth!);
+        final age = DateTime.now().year - dob.year;
+        displayAge = '$age tuổi';
+      } catch (_) {
+        displayAge = user!.dateOfBirth!;
+      }
+    } else {
+      displayAge = '26 tuổi';
+    }
+
+    final String displayBlood =
+        user?.bloodType != null && user!.bloodType!.isNotEmpty
+        ? 'Nhóm máu ${user!.bloodType}'
+        : 'Nhóm máu O+';
 
     return Column(
       children: [
@@ -104,7 +203,7 @@ class ProfileHeader extends StatelessWidget {
             backgroundColor: Colors.white,
             child: CircleAvatar(
               radius: 52,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/300?img=11'),
+              backgroundImage: AssetImage('assets/images/profile-image.jpg'),
             ),
           ),
         ),
@@ -138,14 +237,6 @@ class PersonalInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // // Determine info based on database user
-    // final String gender = user?.gender == 'Female'
-    //     ? 'Nữ'
-    //     : (user?.gender == 'Male' ? 'Nam' : 'Khác');
-    // final String dob = user?.dateOfBirth ?? '15/05/1998';
-    // final String height = '165 cm';
-    // final String weight = '58.2 kg';
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -171,14 +262,18 @@ class PersonalInfoCard extends StatelessWidget {
                 child: _buildInfoItem(
                   icon: Icons.height,
                   title: 'CHIỀU CAO',
-                  value: "height",
+                  value: user?.height != null
+                      ? '${user!.height} cm'
+                      : 'Chưa nhập',
                 ),
               ),
               Expanded(
                 child: _buildInfoItem(
                   icon: Icons.monitor_weight,
                   title: 'CÂN NẶNG',
-                  value: "weight",
+                  value: user?.weight != null
+                      ? '${user!.weight} kg'
+                      : 'Chưa nhập',
                 ),
               ),
             ],
@@ -190,14 +285,14 @@ class PersonalInfoCard extends StatelessWidget {
                 child: _buildInfoItem(
                   icon: Icons.person,
                   title: 'GIỚI TÍNH',
-                  value: "nuwx",
+                  value: user?.gender ?? 'Chưa nhập',
                 ),
               ),
               Expanded(
                 child: _buildInfoItem(
                   icon: Icons.cake,
                   title: 'NGÀY SINH',
-                  value: "10",
+                  value: user?.dateOfBirth ?? 'Chưa nhập',
                 ),
               ),
             ],
@@ -265,29 +360,87 @@ class AppSettingsSection extends StatelessWidget {
         const SizedBox(height: 16),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: const Color(0xFFEBECEE), width: 1.5),
           ),
-          child: Column(
-            children: [
-              _buildSettingItem(
-                icon: Icons.notifications_none,
-                title: 'Thông báo',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18.5),
+            child: Material(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  _buildSettingItem(
+                    icon: Icons.notifications_none,
+                    title: 'Hồ sơ cá nhân',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const EditProfileScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(
+                    height: 1,
+                    color: Color(0xFFEBECEE),
+                    indent: 56,
+                  ),
+                  _buildSettingItem(
+                    icon: Icons.watch,
+                    title: 'Kết nối thiết bị',
+                    // onTap: () {
+                    //   Navigator.push(
+                    //     context,
+                    //     MaterialPageRoute(
+                    //       builder: (context) => const SettingDetailScreen(
+                    //         title: 'Kết nối thiết bị',
+                    //       ),
+                    //     ),
+                    //   );
+                    // },
+                  ),
+                  const Divider(
+                    height: 1,
+                    color: Color(0xFFEBECEE),
+                    indent: 56,
+                  ),
+                  _buildSettingItem(
+                    icon: Icons.lock_outline,
+                    title: 'Bảo mật & Riêng tư',
+                    // onTap: () {
+                    //   Navigator.push(
+                    //     context,
+                    //     MaterialPageRoute(
+                    //       builder: (context) => const SettingDetailScreen(
+                    //         title: 'Bảo mật & Riêng tư',
+                    //       ),
+                    //     ),
+                    //   );
+                    // },
+                  ),
+                  const Divider(
+                    height: 1,
+                    color: Color(0xFFEBECEE),
+                    indent: 56,
+                  ),
+                  _buildSettingItem(
+                    icon: Icons.help_outline,
+                    title: 'Trợ giúp & Hỗ trợ',
+                    // onTap: () {
+                    //   Navigator.push(
+                    //     context,
+                    //     MaterialPageRoute(
+                    //       builder: (context) => const SettingDetailScreen(
+                    //         title: 'Trợ giúp & Hỗ trợ',
+                    //       ),
+                    //     ),
+                    //   );
+                    // },
+                  ),
+                ],
               ),
-              const Divider(height: 1, color: Color(0xFFEBECEE), indent: 56),
-              _buildSettingItem(icon: Icons.watch, title: 'Kết nối thiết bị'),
-              const Divider(height: 1, color: Color(0xFFEBECEE), indent: 56),
-              _buildSettingItem(
-                icon: Icons.lock_outline,
-                title: 'Bảo mật & Riêng tư',
-              ),
-              const Divider(height: 1, color: Color(0xFFEBECEE), indent: 56),
-              _buildSettingItem(
-                icon: Icons.help_outline,
-                title: 'Trợ giúp & Hỗ trợ',
-              ),
-            ],
+            ),
           ),
         ),
       ],
@@ -295,29 +448,51 @@ class AppSettingsSection extends StatelessWidget {
   }
 
   Widget _buildSettingItem({
+    VoidCallback? onTap,
     required IconData icon,
     required String title,
     String? subtitle,
   }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: Icon(icon, color: const Color(0xFF6C757D), size: 26),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF111111),
+    return InkWell(
+      onTap: onTap ?? () {},
+      splashColor: Colors.blue.withValues(alpha: 0.3),
+      hoverColor: Colors.blue.withValues(alpha: 0.1),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF6C757D), size: 26),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF111111),
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFADB5BD),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Color(0xFFADB5BD)),
+          ],
         ),
       ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFADB5BD)),
-            )
-          : null,
-      trailing: const Icon(Icons.chevron_right, color: Color(0xFFADB5BD)),
-      onTap: () {},
     );
   }
 }

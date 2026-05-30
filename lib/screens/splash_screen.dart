@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/data/models/user.dart';
-import 'package:frontend/screens/home_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
@@ -28,12 +27,17 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(seconds: 3),
     );
+
+    _controller.addListener(() {
+      setState(() {
+        _progress = _controller.value;
+      });
+    });
 
     //animation mờ dần
     _fadeAnim = Tween<double>(
@@ -47,69 +51,44 @@ class _SplashScreenState extends State<SplashScreen>
       end: 1.0,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
 
+    //animation trượt lên
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.2),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
-    _controller.forward();
     _simulateLoading();
   }
 
-  Future<void> _checkLoginStatus() async {
-    await Future.delayed(Duration(seconds: 2));
+  Future<void> _simulateLoading() async {
+    final checkLoginFuture = _userService.isLoggedIn();
 
-    final isLoggedIn = await _userService.isLoggedIn();
+    // Chạy animation và đợi cho đến khi hoàn tất (3 giây)
+    await _controller.forward();
+
+    final isLoggedIn = await checkLoginFuture;
+
+    if (isLoggedIn) {
+      final userMap = await _userService.getCurrentUser();
+      if (userMap != null && mounted) {
+        final user = User.fromJson(userMap);
+        Provider.of<UserProvider>(context, listen: false).setUser(user);
+      }
+    }
 
     if (mounted) {
       if (isLoggedIn) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => HomeScreen()),
+          MaterialPageRoute(builder: (_) => const MainScreen()),
         );
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => SigninScreen()),
+          MaterialPageRoute(builder: (_) => const SigninScreen()),
         );
       }
     }
-  }
-
-  Future<void> _simulateLoading() async {
-    final steps = [0.25, 0.5, 0.75, 1.0];
-    for (final step in steps) {
-      await Future.delayed(const Duration(milliseconds: 250));
-      if (mounted) setState(() => _progress = step);
-    }
-    if (mounted) {
-      await _checkAuthAndNavigate();
-    }
-  }
-
-  Future<void> _checkAuthAndNavigate() async {
-    final userProvider = Provider.of<UserProvider>(context, listen: false);
-    final bool isLoggedIn = await _userService.isLoggedIn();
-
-    if (isLoggedIn) {
-      final userMap = await _userService.getCurrentUser();
-      if (userMap != null) {
-        userProvider.setUser(User.fromJson(userMap));
-      }
-    }
-
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            isLoggedIn ? const MainScreen() : const SigninScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            FadeTransition(opacity: animation, child: child),
-        transitionDuration: const Duration(milliseconds: 400),
-      ),
-    );
   }
 
   @override
@@ -126,7 +105,7 @@ class _SplashScreenState extends State<SplashScreen>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1A237E), Color(0xFF42A5F5)],
+            colors: [Colors.white, Colors.lightBlue],
           ),
         ),
         child: SafeArea(
@@ -161,7 +140,7 @@ class _SplashScreenState extends State<SplashScreen>
                             ),
                             const SizedBox(height: 24),
                             const Text(
-                              'The Sanctuary',
+                              'Health App',
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.bold,
@@ -171,7 +150,7 @@ class _SplashScreenState extends State<SplashScreen>
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Khám phá thế giới theo cách của bạn',
+                              'Chăm sóc sức khỏe của bạn',
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.white.withAlpha(200),

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/data/models/user.dart';
-import 'package:frontend/screens/signup_screen.dart';
+import 'package:frontend/screens/sign-up_screen.dart';
 import 'package:frontend/screens/main_screen.dart';
 import 'package:frontend/services/user-service.dart';
 import 'package:frontend/services/api_service.dart';
@@ -47,14 +47,20 @@ class _SigninScreenState extends State<SigninScreen> {
     try {
       setState(() {
         _isLoading = true;
-      }); // Nên bật loading ở đây luôn cho gọn
+      });
 
       final response = await userService.signin(email, password);
 
       if (response.statusCode == 200) {
-        // Lấy thông tin user thực tế từ Backend trả về (giả sử nằm trong response.data['user'] hoặc response.data)
-        // Nếu BE trả về thẳng object user, bạn chỉnh lại cho đúng cấu trúc JSON nhé
-        final userData = response.data;
+        final data = response.data['data'];
+        final userData = data['user'];
+        // final token = data['token'];
+
+        // Lưu token
+        // await _saveToken(token);
+
+        final userInfo = await userService.getCurrentUser();
+        // final String userName = userInfo['name'];
 
         final User? existingUser = await _userController.getUserByEmail(email);
 
@@ -66,10 +72,9 @@ class _SigninScreenState extends State<SigninScreen> {
             listen: false,
           ).setUser(existingUser);
         } else {
-          // Chuẩn hóa: Khởi tạo User từ dữ liệu thật của Server trả về
           final User newUser = User(
             email: email,
-            passwordHash: password, // Tạm thời giữ logic so sánh pass của bạn
+            passwordHash: password,
             user_name: userData['name'],
           );
           await _userController.insertUser(newUser);
@@ -90,9 +95,7 @@ class _SigninScreenState extends State<SigninScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      // 1. Trường hợp lỗi do hệ thống mạng hoặc lỗi từ thư viện Dio
       if (e is DioException) {
-        // TH1: Lỗi mất mạng, nghẽn mạng, timeout kết nối hoặc không có phản hồi từ Server
         if (e.type == DioExceptionType.connectionError ||
             e.type == DioExceptionType.connectionTimeout ||
             e.type == DioExceptionType.receiveTimeout ||
@@ -134,7 +137,6 @@ class _SigninScreenState extends State<SigninScreen> {
             }
           }
 
-          // Nếu mất mạng hoàn toàn nhưng thiết bị chưa có data user này
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
@@ -147,7 +149,6 @@ class _SigninScreenState extends State<SigninScreen> {
           return;
         }
 
-        // TH2: Có mạng bình thường, nhưng Server chủ động trả về lỗi (400, 401, sai mật khẩu, unauthenticated...)
         if (e.response != null && e.response?.data is Map<String, dynamic>) {
           final Map<String, dynamic> errorData =
               e.response!.data as Map<String, dynamic>;
@@ -156,9 +157,7 @@ class _SigninScreenState extends State<SigninScreen> {
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                serverMessage,
-              ), // Hiển thị chuẩn chữ "Unauthenticated" hoặc "Sai mật khẩu"
+              content: Text(serverMessage),
               backgroundColor: Colors.redAccent,
               behavior: SnackBarBehavior.floating,
             ),
@@ -167,7 +166,6 @@ class _SigninScreenState extends State<SigninScreen> {
         }
       }
 
-      // 2. Dự phòng cho các lỗi khác không phải từ Dio (Lỗi code logic nội bộ, lỗi parse dữ liệu,...)
       String fallbackMessage = 'Đã xảy ra lỗi hệ thống';
       if (e is Map<String, dynamic>) {
         fallbackMessage = e['message'] ?? fallbackMessage;
@@ -225,14 +223,14 @@ class _SigninScreenState extends State<SigninScreen> {
               _buildLabelRow("Email"),
               _buildTextField(
                 controller: _emailController,
-                hint: "ten@email.com",
+                hint: "example@gmail.com",
                 prefixIcon: Icons.email_outlined,
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 20),
 
               // Form Nhập liệu: Mật khẩu
-              _buildLabelRow("Mật khẩu"),
+              _buildLabelRow("Password"),
               _buildTextField(
                 controller: _passwordController,
                 hint: "••••••••",

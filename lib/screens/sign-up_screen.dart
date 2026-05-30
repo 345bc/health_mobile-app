@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/data/models/user.dart';
 import 'package:frontend/screens/sign-in_screen.dart';
+import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/user-service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -44,6 +47,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SnackBar(
           content: Text("Vui lòng điền đầy đủ tất cả thông tin."),
           backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -55,6 +59,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SnackBar(
           content: Text("Định dạng email không hợp lệ."),
           backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -65,6 +70,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SnackBar(
           content: Text("Mật khẩu phải dài ít nhất 6 ký tự."),
           backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -75,6 +81,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SnackBar(
           content: Text("Mật khẩu xác nhận không khớp."),
           backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -87,6 +94,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
             "Bạn cần đồng ý với Điều khoản & Chính sách để tiếp tục.",
           ),
           backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -97,27 +105,26 @@ class _SignUpScreenState extends State<SignUpScreen> {
     });
 
     try {
-      final User? existingUser = await _userController.getUserByEmail(email);
-      if (existingUser != null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Email này đã được đăng ký trước đó."),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+      final ApiService apiService = ApiService();
+      final UserService userService = UserService(apiService);
 
-      final int resultId = await _userController.insertUser(
-        User(email: email, passwordHash: password, user_name: name),
-      );
-      if (resultId > 0) {
+      final response = await userService.signup(email, password, name);
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        // Đăng ký thành công trên backend -> lưu vào SQLite nội bộ để hỗ trợ offline
+        final User? existingUser = await _userController.getUserByEmail(email);
+        if (existingUser == null) {
+          await _userController.insertUser(
+            User(email: email, passwordHash: password, user_name: name),
+          );
+        }
+
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Đăng ký tài khoản thành công!"),
+            content: Text("Đăng ký tài khoản thành công! 🎉"),
             backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         Navigator.pushReplacement(
@@ -130,15 +137,44 @@ class _SignUpScreenState extends State<SignUpScreen> {
           const SnackBar(
             content: Text("Đăng ký thất bại. Vui lòng thử lại."),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } catch (e) {
       if (!mounted) return;
+
+      if (e is DioException) {
+        if (e.response != null && e.response?.data is Map<String, dynamic>) {
+          final errorData = e.response!.data as Map<String, dynamic>;
+          final String serverMessage =
+              errorData['message'] ?? 'Đăng ký thất bại';
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(serverMessage),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Không thể kết nối mạng hoặc máy chủ!"),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Đã xảy ra lỗi khi tạo tài khoản: $e"),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
@@ -182,22 +218,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
               const SizedBox(height: 32),
 
-              _buildLabel("HỌ VÀ TÊN"),
-              _buildTextField(
-                controller: _nameController,
-                hint: "Nguyễn Văn A",
-              ),
+              _buildLabel("Username"),
+              _buildTextField(controller: _nameController, hint: "user"),
               const SizedBox(height: 16),
 
-              _buildLabel("EMAIL"),
+              _buildLabel("Email"),
               _buildTextField(
                 controller: _emailController,
-                hint: "example@vitalis.com",
+                hint: "example@gmail.com",
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 16),
 
-              _buildLabel("MẬT KHẨU"),
+              _buildLabel("Password"),
               _buildTextField(
                 controller: _passwordController,
                 hint: "••••••••",
@@ -205,7 +238,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
               const SizedBox(height: 16),
 
-              _buildLabel("XÁC NHẬN MẬT KHẨU"),
+              _buildLabel("Confirm password"),
               _buildTextField(
                 controller: _confirmPasswordController,
                 hint: "••••••••",

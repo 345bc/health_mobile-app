@@ -22,13 +22,13 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'health_app.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
-  // ===== SCHEMA VERSION 1 → 2 MIGRATION =====
+  // ===== SCHEMA VERSION 1 → 2 → 3 MIGRATION =====
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Thêm cột mới vào users
@@ -37,9 +37,12 @@ class DatabaseHelper {
       // Thêm cột heart_rate vào body_measurements
       await db.execute('ALTER TABLE body_measurements ADD COLUMN heart_rate INTEGER');
     }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE users ADD COLUMN avatar TEXT');
+    }
   }
 
-  // ===== SCHEMA TẠO MỚI (version 2) =====
+  // ===== SCHEMA TẠO MỚI (version 3) =====
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE users(
@@ -51,7 +54,8 @@ class DatabaseHelper {
         gender     TEXT,
         height     REAL,
         weight     REAL,
-        blood_type TEXT
+        blood_type TEXT,
+        avatar     TEXT
       )
     ''');
 
