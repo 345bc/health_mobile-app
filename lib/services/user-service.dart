@@ -56,7 +56,7 @@ class UserService {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.get(
-        '/end-users/$userId',
+        '/end-users/user/$userId',
         options: Options(
           headers: {
             if (token != null) 'Authorization': 'Bearer $token',
@@ -70,11 +70,11 @@ class UserService {
     }
   }
 
-  Future<Response?> updateEndUserProfile(Map<String, dynamic> endUserData) async {
+  Future<Response?> updateEndUserProfile(int userId, Map<String, dynamic> endUserData) async {
     try {
       final token = await _tokenService.getToken();
-      final response = await _apiClient.dio.put(
-        '/end-users',
+      final response = await _apiClient.dio.patch(
+        '/end-users/user/$userId',
         data: endUserData,
         options: Options(
           headers: {
@@ -85,7 +85,26 @@ class UserService {
       return response;
     } on DioException catch (e) {
       print("Không thể cập nhật end-user profile: ${e.message}");
-      return null;
+      return e.response;
+    }
+  }
+
+  Future<Response?> updateUserAccount(int id, Map<String, dynamic> userData) async {
+    try {
+      final token = await _tokenService.getToken();
+      final response = await _apiClient.dio.patch(
+        '/users/$id',
+        data: userData,
+        options: Options(
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      return response;
+    } on DioException catch (e) {
+      print("Không thể cập nhật tài khoản: ${e.message}");
+      return e.response;
     }
   }
 }

@@ -30,6 +30,7 @@ class User {
   double? get height => endUser?.height;
   double? get weight => endUser?.weight;
   String? get bloodType => endUser?.bloodType;
+  String? get avatar => endUser?.avatar;
 
   Map<String, dynamic> toMap() {
     return {
@@ -42,6 +43,7 @@ class User {
       'height': endUser?.height,
       'weight': endUser?.weight,
       'blood_type': endUser?.bloodType,
+      'avatar': endUser?.avatar,
     };
   }
 
@@ -56,13 +58,10 @@ class User {
         name: map['name'] as String?,
         dateOfBirth: map['date_of_birth'] as String?,
         gender: map['gender'] as String?,
-        height: (map['height'] is num)
-            ? (map['height'] as num).toDouble()
-            : null,
-        weight: (map['weight'] is num)
-            ? (map['weight'] as num).toDouble()
-            : null,
+        height: (map['height'] is num) ? (map['height'] as num).toDouble() : null,
+        weight: (map['weight'] is num) ? (map['weight'] as num).toDouble() : null,
         bloodType: map['blood_type'] as String?,
+        avatar: map['avatar'] as String?,
       ),
     );
   }
@@ -72,21 +71,17 @@ class User {
     return User(
       userId: (json['id'] ?? json['userId']) as int?,
       email: json['email'] as String? ?? '',
-      passwordHash:
-          (json['passwordHash'] ?? json['password_hash']) as String? ?? '',
+      passwordHash: (json['passwordHash'] ?? json['password_hash']) as String? ?? '',
       user_name: nameVal,
       endUser: EndUser(
         id: (json['id'] ?? json['userId']) as int?,
         name: nameVal,
         dateOfBirth: (json['dateOfBirth'] ?? json['date_of_birth']) as String?,
         gender: json['gender'] as String?,
-        height: (json['height'] is num)
-            ? (json['height'] as num).toDouble()
-            : null,
-        weight: (json['weight'] is num)
-            ? (json['weight'] as num).toDouble()
-            : null,
+        height: (json['height'] is num) ? (json['height'] as num).toDouble() : null,
+        weight: (json['weight'] is num) ? (json['weight'] as num).toDouble() : null,
         bloodType: (json['bloodType'] ?? json['blood_type']) as String?,
+        avatar: json['avatar'] as String?,
       ),
     );
   }
@@ -103,6 +98,7 @@ class User {
       'height': endUser?.height,
       'weight': endUser?.weight,
       'bloodType': endUser?.bloodType,
+      'avatar': endUser?.avatar,
     };
   }
 
@@ -116,6 +112,7 @@ class User {
     double? height,
     double? weight,
     String? bloodType,
+    String? avatar,
     EndUser? endUser,
   }) {
     return User(
@@ -123,27 +120,27 @@ class User {
       email: email ?? this.email,
       passwordHash: passwordHash ?? this.passwordHash,
       user_name: user_name ?? this.user_name,
-      endUser:
-          endUser ??
-          (this.endUser != null
-              ? this.endUser!.copyWith(
-                  id: userId ?? this.userId,
-                  name: user_name ?? this.endUser?.name,
-                  dateOfBirth: dateOfBirth ?? this.endUser?.dateOfBirth,
-                  gender: gender ?? this.endUser?.gender,
-                  height: height ?? this.endUser?.height,
-                  weight: weight ?? this.endUser?.weight,
-                  bloodType: bloodType ?? this.endUser?.bloodType,
-                )
-              : EndUser(
-                  id: userId ?? this.userId,
-                  name: user_name,
-                  dateOfBirth: dateOfBirth,
-                  gender: gender,
-                  height: height,
-                  weight: weight,
-                  bloodType: bloodType,
-                )),
+      endUser: endUser ?? (this.endUser != null
+          ? this.endUser!.copyWith(
+              id: userId ?? this.userId,
+              name: user_name ?? this.endUser?.name,
+              dateOfBirth: dateOfBirth ?? this.endUser?.dateOfBirth,
+              gender: gender ?? this.endUser?.gender,
+              height: height ?? this.endUser?.height,
+              weight: weight ?? this.endUser?.weight,
+              bloodType: bloodType ?? this.endUser?.bloodType,
+              avatar: avatar ?? this.endUser?.avatar,
+            )
+          : EndUser(
+              id: userId ?? this.userId,
+              name: user_name,
+              dateOfBirth: dateOfBirth,
+              gender: gender,
+              height: height,
+              weight: weight,
+              bloodType: bloodType,
+              avatar: avatar,
+            )),
     );
   }
 }

@@ -26,7 +26,6 @@ class _SigninScreenState extends State<SigninScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -41,7 +40,6 @@ class _SigninScreenState extends State<SigninScreen> {
 
     setState(() {
       _isLoading = true;
-      _error = null;
     });
 
     try {
@@ -59,7 +57,7 @@ class _SigninScreenState extends State<SigninScreen> {
         // Lưu token
         // await _saveToken(token);
 
-        final userInfo = await userService.getCurrentUser();
+        // final userInfo = await userService.getCurrentUser();
         // final String userName = userInfo['name'];
 
         final User? existingUser = await _userController.getUserByEmail(email);

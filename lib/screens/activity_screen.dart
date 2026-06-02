@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/data/controller/activity_controller.dart';
 import 'package:frontend/data/models/activity.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/data/database_helper.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -15,11 +15,11 @@ class ActivityScreen extends StatefulWidget {
 
 class _ActivityScreenState extends State<ActivityScreen> {
   final ActivityController _ctrl = ActivityController();
-  final DatabaseHelper _db = DatabaseHelper();
 
   Activity? _todayActivity;
   List<Activity> _recentActivities = [];
   bool _isLoading = true;
+  int _targetSteps = 10000;
 
   @override
   void initState() {
@@ -39,12 +39,21 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final results = await Future.wait([
       _ctrl.getTodayActivity(uid),
       _ctrl.getRecentActivities(uid, days: 7),
+      DatabaseHelper().getActiveGoal(uid),
     ]);
 
     if (!mounted) return;
+
+    final Map<String, dynamic>? activeGoal = results[2] as Map<String, dynamic>?;
+    int targetSteps = 10000;
+    if (activeGoal != null && activeGoal['goal_type'] == 'STAY_HEALTHY' && activeGoal['target_value'] != null) {
+      targetSteps = (activeGoal['target_value'] as num).toInt();
+    }
+
     setState(() {
       _todayActivity = results[0] as Activity?;
       _recentActivities = results[1] as List<Activity>;
+      _targetSteps = targetSteps;
       _isLoading = false;
     });
   }
@@ -56,62 +65,123 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final distanceCtrl = TextEditingController(
       text: _todayActivity?.distance.toString() ?? '',
     );
-    final calCtrl = TextEditingController(
-      text: _todayActivity?.caloriesBurned.toString() ?? '',
-    );
+
+    final user = Provider.of<UserProvider>(context, listen: false).getUser();
+    double weight = 60.0;
+    if (user != null && user.weight != null && user.weight! > 0) {
+      weight = user.weight!;
+    } else {
+      final latest = await DatabaseHelper().getLatestBodyMeasurement(user?.userId ?? 1);
+      if (latest != null && latest['weight'] != null) {
+        weight = (latest['weight'] as num).toDouble();
+      }
+    }
+
+    if (!mounted) return;
 
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Ghi nhận vận động hôm nay'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _dialogField(
-              stepsCtrl,
-              'Số bước chân',
-              'bước',
-              TextInputType.number,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final double distanceVal = double.tryParse(distanceCtrl.text) ?? 
+              ((int.tryParse(stepsCtrl.text) ?? 0) * 0.00075);
+          final int calculatedCalories = (weight * distanceVal * 0.75).round();
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Ghi nhận vận động hôm nay'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _dialogField(
+                  stepsCtrl,
+                  'Số bước chân',
+                  'bước',
+                  TextInputType.number,
+                  onChanged: (val) {
+                    final steps = int.tryParse(val) ?? 0;
+                    final dist = steps * 0.00075;
+                    setDialogState(() {
+                      distanceCtrl.text = dist > 0 ? dist.toStringAsFixed(2) : '';
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                _dialogField(
+                  distanceCtrl,
+                  'Quãng đường',
+                  'km',
+                  const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (val) {
+                    setDialogState(() {});
+                  },
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F6FB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFEBECEE)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Calo tiêu hao tự động:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF495057)),
+                      ),
+                      Text(
+                        '$calculatedCalories kcal',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          color: Color(0xFF0F75F4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            _dialogField(
-              distanceCtrl,
-              'Quãng đường',
-              'km',
-              const TextInputType.numberWithOptions(decimal: true),
-            ),
-            const SizedBox(height: 12),
-            _dialogField(calCtrl, 'Calo đốt', 'kcal', TextInputType.number),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Hủy'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0F75F4),
-            ),
-            onPressed: () async {
-              final user = Provider.of<UserProvider>(
-                context,
-                listen: false,
-              ).getUser();
-              if (user == null) return;
-              await _ctrl.upsertTodayActivity(
-                userId: user.userId!,
-                steps: int.tryParse(stepsCtrl.text) ?? 0,
-                distance: double.tryParse(distanceCtrl.text) ?? 0,
-                caloriesBurned: int.tryParse(calCtrl.text) ?? 0,
-              );
-              if (ctx.mounted) Navigator.pop(ctx);
-              _load();
-            },
-            child: const Text('Lưu', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Hủy'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F75F4),
+                ),
+                onPressed: () async {
+                  final user = Provider.of<UserProvider>(
+                    context,
+                    listen: false,
+                  ).getUser();
+                  if (user == null) return;
+
+                  final int steps = int.tryParse(stepsCtrl.text) ?? 0;
+                  double distance = double.tryParse(distanceCtrl.text) ?? 0.0;
+                  if (distance == 0 && steps > 0) {
+                    distance = steps * 0.00075;
+                  }
+
+                  final int calories = (weight * distance * 0.75).round();
+
+                  await _ctrl.upsertTodayActivity(
+                    userId: user.userId!,
+                    steps: steps,
+                    distance: distance,
+                    caloriesBurned: calories,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  _load();
+                },
+                child: const Text('Lưu', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -176,7 +246,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final int steps = _todayActivity?.steps ?? 0;
     final int cal = _todayActivity?.caloriesBurned ?? 0;
     final double dist = _todayActivity?.distance ?? 0;
-    const int target = 10000;
+    final int target = _targetSteps;
     final double progress = (steps / target).clamp(0.0, 1.0);
 
     return Container(
@@ -370,11 +440,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
     TextEditingController ctrl,
     String label,
     String suffix,
-    TextInputType type,
-  ) {
+    TextInputType type, {
+    ValueChanged<String>? onChanged,
+  }) {
     return TextField(
       controller: ctrl,
       keyboardType: type,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

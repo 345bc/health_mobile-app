@@ -3,6 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/database_helper.dart';
+import 'package:frontend/screens/nutrition_screen.dart';
+import 'package:frontend/screens/vitals_screen.dart';
+import 'package:frontend/data/controller/log_controller.dart';
+import 'package:frontend/services/notification_service.dart';
 
 class LogScreen extends StatefulWidget {
   const LogScreen({super.key});
@@ -14,56 +18,93 @@ class LogScreen extends StatefulWidget {
 class _LogScreenState extends State<LogScreen> {
   DateTime _selectedDate = DateTime.now();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final LogController _logController = LogController();
 
   String _weightText = 'Chưa ghi';
   String _bloodPressureText = 'Chưa ghi';
   String _mealsText = 'ĐÃ GHI 0 BỮA';
   String _moodText = 'Chưa ghi';
 
+  int _streakCount = 0;
+  List<double> _weeklyCompletionRates = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
   @override
   void initState() {
     super.initState();
-    _loadLatestStats();
+    _initLogs();
   }
 
-  Future<void> _loadLatestStats() async {
+  Future<void> _initLogs() async {
+    final user = Provider.of<UserProvider>(context, listen: false).getUser();
+    if (user != null && user.userId != null) {
+      await _logController.refreshLogsFromServer(user.userId!);
+    }
+    _loadStatsForDate();
+  }
+
+  Future<void> _loadStatsForDate() async {
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
     if (user == null) return;
     final int userId = user.userId ?? 1;
+    final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-    // Fetch latest body measurement
-    final measurement = await _dbHelper.getLatestBodyMeasurement(userId);
-    if (measurement != null) {
-      setState(() {
-        if (measurement['weight'] != null) {
-          _weightText = '${measurement['weight']} KG';
-        }
-        if (measurement['blood_pressure'] != null) {
-          _bloodPressureText = '${measurement['blood_pressure']} MMHG';
-        }
-      });
+    final db = await _dbHelper.database;
+
+    // 1. Fetch body measurement for selected date
+    final List<Map<String, dynamic>> measurements = await db.query(
+      'body_measurements',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, dateStr],
+    );
+
+    String weightVal = 'Chưa ghi';
+    String bpVal = 'Chưa ghi';
+    if (measurements.isNotEmpty) {
+      final m = measurements.first;
+      if (m['weight'] != null) weightVal = '${m['weight']} KG';
+      if (m['blood_pressure'] != null) bpVal = '${m['blood_pressure']} MMHG';
     }
 
-    // Fetch meal count today
-    final int mealCount = await _dbHelper.getMealCountToday(userId);
-    setState(() {
-      _mealsText = 'ĐÃ GHI $mealCount BỮA';
-    });
+    // 2. Fetch meals count for selected date
+    final List<Map<String, dynamic>> meals = await db.query(
+      'nutrition_logs',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, dateStr],
+    );
+    final int mealCount = meals.length;
 
-    // Fetch latest mood entry
-    final mood = await _dbHelper.getLatestMoodEntry(userId);
-    if (mood != null) {
-      final int score = mood['mood_score'] ?? 3;
-      String moodLabel = 'BÌNH THƯỜNG';
+    // 3. Fetch mood entry for selected date
+    final List<Map<String, dynamic>> moods = await db.query(
+      'mood_entries',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, dateStr],
+    );
+    String moodLabel = 'Chưa ghi';
+    if (moods.isNotEmpty) {
+      final int score = moods.first['mood_score'] ?? 3;
       if (score == 5) moodLabel = 'RẤT TỐT';
       if (score == 4) moodLabel = 'TỐT';
       if (score == 3) moodLabel = 'BÌNH THƯỜNG';
       if (score == 2) moodLabel = 'TỆ';
       if (score == 1) moodLabel = 'RẤT TỆ';
-      setState(() {
-        _moodText = moodLabel;
-      });
     }
+
+    // 4. Calculate dynamic streak
+    final int streak = await _logController.calculateStreak(userId);
+
+    // 5. Calculate weekly completion
+    final List<double> weeklyCompletion = await _logController.calculateWeeklyCompletion(userId);
+
+    if (!mounted) return;
+
+    setState(() {
+      _weightText = weightVal;
+      _bloodPressureText = bpVal;
+      _mealsText = 'ĐÃ GHI $mealCount BỮA';
+      _moodText = moodLabel;
+      _streakCount = streak;
+      _weeklyCompletionRates = weeklyCompletion;
+    });
   }
 
   Future<void> _selectDate() async {
@@ -71,7 +112,7 @@ class _LogScreenState extends State<LogScreen> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      lastDate: DateTime.now(),
     );
 
     if (!mounted) return;
@@ -80,6 +121,28 @@ class _LogScreenState extends State<LogScreen> {
       setState(() {
         _selectedDate = picked;
       });
+      _loadStatsForDate();
+    }
+  }
+
+  void _onTapCategory(String category) {
+    if (category == 'Cân nặng') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const VitalsScreen(initialTab: 0)),
+      ).then((_) => _loadStatsForDate());
+    } else if (category == 'Huyết áp') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const VitalsScreen(initialTab: 1)),
+      ).then((_) => _loadStatsForDate());
+    } else if (category == 'Món ăn') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const NutritionScreen()),
+      ).then((_) => _loadStatsForDate());
+    } else {
+      _showLogDialog(category);
     }
   }
 
@@ -113,12 +176,17 @@ class _LogScreenState extends State<LogScreen> {
               onPressed: () async {
                 final double? val = double.tryParse(controller.text);
                 if (val != null) {
-                  await _dbHelper.insertBodyMeasurement({
-                    'user_id': userId,
-                    'date': dateStr,
-                    'weight': val,
-                  });
-                  _loadLatestStats();
+                  await _logController.logWeight(
+                    userId: userId,
+                    date: dateStr,
+                    weight: val,
+                  );
+                  _loadStatsForDate();
+                  NotificationService().showNotification(
+                    id: 30,
+                    title: "Ghi nhận cân nặng",
+                    body: "Đã lưu cân nặng $val KG thành công.",
+                  );
                   if (context.mounted) Navigator.pop(context);
                 }
               },
@@ -153,12 +221,17 @@ class _LogScreenState extends State<LogScreen> {
               onPressed: () async {
                 final String val = controller.text.trim();
                 if (val.isNotEmpty) {
-                  await _dbHelper.insertBodyMeasurement({
-                    'user_id': userId,
-                    'date': dateStr,
-                    'blood_pressure': val,
-                  });
-                  _loadLatestStats();
+                  await _logController.logBloodPressure(
+                    userId: userId,
+                    date: dateStr,
+                    bloodPressure: val,
+                  );
+                  _loadStatsForDate();
+                  NotificationService().showNotification(
+                    id: 31,
+                    title: "Ghi nhận huyết áp",
+                    body: "Đã lưu huyết áp $val mmHg thành công.",
+                  );
                   if (context.mounted) Navigator.pop(context);
                 }
               },
@@ -166,77 +239,6 @@ class _LogScreenState extends State<LogScreen> {
               child: const Text('Lưu', style: TextStyle(color: Colors.white)),
             )
           ],
-        ),
-      );
-    } else if (category == 'Món ăn') {
-      final foodController = TextEditingController();
-      final calController = TextEditingController();
-      String mealType = 'Breakfast';
-
-      showDialog(
-        context: context,
-        builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text('Ghi nhận Món ăn'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButton<String>(
-                  value: mealType,
-                  isExpanded: true,
-                  items: const [
-                    DropdownMenuItem(value: 'Breakfast', child: Text('Bữa sáng')),
-                    DropdownMenuItem(value: 'Lunch', child: Text('Bữa trưa')),
-                    DropdownMenuItem(value: 'Dinner', child: Text('Bữa tối')),
-                    DropdownMenuItem(value: 'Snack', child: Text('Bữa phụ')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) {
-                      setDialogState(() => mealType = val);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: foodController,
-                  decoration: const InputDecoration(
-                    hintText: 'Tên món ăn (Ví dụ: Phở bò)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: calController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: 'Lượng calo (Ví dụ: 500)',
-                    suffixText: 'kcal',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Hủy'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final String foodName = foodController.text.trim();
-                  final int calories = int.tryParse(calController.text) ?? 0;
-                  if (foodName.isNotEmpty) {
-                    await _dbHelper.insertMealLog(userId, mealType, foodName, calories);
-                    _loadLatestStats();
-                    if (context.mounted) Navigator.pop(context);
-                  }
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F75F4)),
-                child: const Text('Lưu', style: TextStyle(color: Colors.white)),
-              )
-            ],
-          ),
         ),
       );
     } else if (category == 'Tâm trạng') {
@@ -304,13 +306,18 @@ class _LogScreenState extends State<LogScreen> {
               ),
               ElevatedButton(
                 onPressed: () async {
-                  await _dbHelper.insertMoodEntry({
-                    'user_id': userId,
-                    'date': dateStr,
-                    'mood_score': score.toInt(),
-                    'notes': notesController.text.trim(),
-                  });
-                  _loadLatestStats();
+                  await _logController.logMood(
+                    userId: userId,
+                    date: dateStr,
+                    moodScore: score.toInt(),
+                    notes: notesController.text.trim(),
+                  );
+                  _loadStatsForDate();
+                  NotificationService().showNotification(
+                    id: 32,
+                    title: "Ghi nhận tâm trạng",
+                    body: "Đã lưu trạng thái cảm xúc thành công.",
+                  );
                   if (context.mounted) Navigator.pop(context);
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F75F4)),
@@ -352,11 +359,15 @@ class _LogScreenState extends State<LogScreen> {
                 bloodPressureText: _bloodPressureText,
                 mealsText: _mealsText,
                 moodText: _moodText,
-                onTapCategory: _showLogDialog,
+                onTapCategory: _onTapCategory,
               ),
 
               const SizedBox(height: 32),
-              ProgressCard(ontap: () => _selectDate()),
+              ProgressCard(
+                ontap: () => _selectDate(),
+                streakCount: _streakCount,
+                weeklyCompletionRates: _weeklyCompletionRates,
+              ),
 
               const SizedBox(height: 24),
               const AdviceCard(),
@@ -531,7 +542,15 @@ class CategoryGrid extends StatelessWidget {
 
 class ProgressCard extends StatelessWidget {
   final VoidCallback? ontap;
-  const ProgressCard({super.key, this.ontap});
+  final int streakCount;
+  final List<double> weeklyCompletionRates;
+
+  const ProgressCard({
+    super.key,
+    this.ontap,
+    required this.streakCount,
+    required this.weeklyCompletionRates,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -554,17 +573,17 @@ class ProgressCard extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Column(
-            children: const [
+            children: [
               Text(
-                '80',
-                style: TextStyle(
+                '$streakCount',
+                style: const TextStyle(
                   fontSize: 36,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFF111111),
                   height: 1.0,
                 ),
               ),
-              Text(
+              const Text(
                 'NGÀY',
                 style: TextStyle(
                   fontSize: 10,
@@ -594,13 +613,13 @@ class ProgressCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _buildBar('T2', 0.4, false),
-              _buildBar('T3', 0.5, false),
-              _buildBar('T4', 0.6, false),
-              _buildBar('T5', 0.45, false),
-              _buildBar('T6', 0.7, false),
-              _buildBar('T7', 0.55, false),
-              _buildBar('CN', 1.0, true),
+              _buildBar('T2', weeklyCompletionRates.isNotEmpty ? weeklyCompletionRates[0] : 0.0, DateTime.now().weekday == 1),
+              _buildBar('T3', weeklyCompletionRates.length > 1 ? weeklyCompletionRates[1] : 0.0, DateTime.now().weekday == 2),
+              _buildBar('T4', weeklyCompletionRates.length > 2 ? weeklyCompletionRates[2] : 0.0, DateTime.now().weekday == 3),
+              _buildBar('T5', weeklyCompletionRates.length > 3 ? weeklyCompletionRates[3] : 0.0, DateTime.now().weekday == 4),
+              _buildBar('T6', weeklyCompletionRates.length > 4 ? weeklyCompletionRates[4] : 0.0, DateTime.now().weekday == 5),
+              _buildBar('T7', weeklyCompletionRates.length > 5 ? weeklyCompletionRates[5] : 0.0, DateTime.now().weekday == 6),
+              _buildBar('CN', weeklyCompletionRates.length > 6 ? weeklyCompletionRates[6] : 0.0, DateTime.now().weekday == 7),
             ],
           ),
         ],
@@ -646,7 +665,7 @@ class ProgressCard extends StatelessWidget {
       children: [
         Container(
           width: 8,
-          height: 60 * heightFactor,
+          height: (60 * heightFactor).clamp(4.0, 60.0),
           decoration: BoxDecoration(
             color: isActive ? const Color(0xFF0F75F4) : const Color(0xFFAECBFA),
             borderRadius: BorderRadius.circular(4),

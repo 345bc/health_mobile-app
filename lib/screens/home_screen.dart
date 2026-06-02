@@ -6,7 +6,10 @@ import 'package:frontend/data/models/activity.dart';
 import 'package:frontend/data/models/sleep_log.dart';
 import 'package:frontend/screens/activity_screen.dart';
 import 'package:frontend/screens/sleep_screen.dart';
-// import 'package:frontend/screens/nutrition_screen.dart';
+import 'package:frontend/screens/nutrition_screen.dart';
+import 'package:frontend/screens/vitals_screen.dart';
+import 'package:frontend/screens/goal_screen.dart';
+import 'package:frontend/screens/analytics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,8 +28,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _caloriesBurned = 0;
   int? _heartRate;
   String _sleepText = '--';
-  int _currentWater = 0;
-  final int _targetWater = 2000;
 
   @override
   void initState() {
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _db.getLastSleep(userId),
       _db.getLatestHeartRate(userId),
       _db.getLatestBodyMeasurement(userId),
+      _db.getActiveGoal(userId),
     ]);
 
     if (!mounted) return;
@@ -58,21 +60,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final Activity? activity = results[0] as Activity?;
     final SleepLog? sleep = results[1] as SleepLog?;
     final int? heartRate = results[2] as int?;
+    final Map<String, dynamic>? activeGoal = results[4] as Map<String, dynamic>?;
+
+    int targetSteps = 10000;
+    if (activeGoal != null && activeGoal['goal_type'] == 'STAY_HEALTHY' && activeGoal['target_value'] != null) {
+      targetSteps = (activeGoal['target_value'] as num).toInt();
+    }
 
     setState(() {
       _steps = activity?.steps ?? 0;
       _caloriesBurned = activity?.caloriesBurned ?? 0;
       _heartRate = heartRate;
       _sleepText = sleep?.durationFormatted ?? '--';
+      _targetSteps = targetSteps;
       _isLoading = false;
     });
   }
 
-  void _addWater(int amount) {
-    setState(() {
-      _currentWater = (_currentWater + amount).clamp(0, _targetWater);
-    });
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -117,7 +122,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Expanded(
                           child: GestureDetector(
-                            onTap: () {},
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const VitalsScreen(initialTab: 3),
+                                ),
+                              ).then((_) => _loadStats());
+                            },
                             child: HeartRateCard(bpm: _heartRate),
                           ),
                         ),
@@ -137,32 +149,38 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Nước uống
-                    WaterIntakeCard(
-                      current: _currentWater,
-                      target: _targetWater,
-                      onAddWater: () => _addWater(250),
-                    ),
-                    const SizedBox(height: 24),
+
 
                     // Calo đốt hôm nay
                     _buildCalorieCard(),
                     const SizedBox(height: 24),
 
+                    // Thẻ mục tiêu sức khỏe
+                    _buildGoalCard(),
+                    const SizedBox(height: 24),
+
                     // Banner dinh dưỡng
-                    // GestureDetector(
-                    //   onTap: () => Navigator.push(
-                    //     context,
-                    //     MaterialPageRoute(
-                    //       builder: (_) => const NutritionScreen(),
-                    //     ),
-                    //   ),
-                    //   child: const WorkoutBanner(),
-                    // ),
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const NutritionScreen(),
+                        ),
+                      ).then((_) => _loadStats()),
+                      child: const WorkoutBanner(),
+                    ),
                     const SizedBox(height: 32),
                     _buildSectionTitle('Phân tích tuần này'),
                     const SizedBox(height: 16),
-                    const WeeklyAnalysisCard(),
+                     GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
+                        );
+                      },
+                      child: const WeeklyAnalysisCard(),
+                    ),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -264,6 +282,82 @@ class _HomeScreenState extends State<HomeScreen> {
       color: Color(0xFF1A1A1A),
     ),
   );
+
+  Widget _buildGoalCard() {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const GoalScreen()),
+        ).then((_) => _loadStats());
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4F46E5).withAlpha(40),
+              blurRadius: 15,
+              offset: const Offset(0, 8),
+            )
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(50),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.track_changes, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'MỤC TIÊU SỨC KHỎE',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Đặt mục tiêu & Nhận đề xuất',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Đề xuất chế độ dinh dưỡng & bài tập tập luyện',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ===== WIDGETS CON =====
@@ -488,97 +582,8 @@ Widget _buildSmallCard({
   );
 }
 
-class WaterIntakeCard extends StatelessWidget {
-  final int current;
-  final int target;
-  final VoidCallback onAddWater;
+// Deleted top-level _buildGoalCard
 
-  const WaterIntakeCard({
-    super.key,
-    required this.current,
-    required this.target,
-    required this.onAddWater,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String fmt(int n) => n.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (m) => '${m[1]},',
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE7F1FF),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0F75F4),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.water_drop, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'LƯỢNG NƯỚC',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F75F4),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                RichText(
-                  text: TextSpan(
-                    style: const TextStyle(color: Colors.black),
-                    children: [
-                      TextSpan(
-                        text: fmt(current),
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextSpan(
-                        text: ' / ${fmt(target)} ml',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ElevatedButton.icon(
-            onPressed: onAddWater,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('250ml'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0F75F4),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class WorkoutBanner extends StatelessWidget {
   const WorkoutBanner({super.key});

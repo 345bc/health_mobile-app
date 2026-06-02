@@ -22,23 +22,39 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'health_app.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
-  // ===== SCHEMA VERSION 1 → 2 → 3 MIGRATION =====
+  // Helper to add a column safely only if it does not already exist
+  Future<void> _addColumnIfNotExists(Database db, String table, String column, String type) async {
+    try {
+      final List<Map<String, dynamic>> columns = await db.rawQuery("PRAGMA table_info($table)");
+      final bool exists = columns.any((c) => c['name'] == column);
+      if (!exists) {
+        await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+      }
+    } catch (e) {
+      print("Lỗi khi thêm cột $column vào bảng $table: $e");
+    }
+  }
+
+  // ===== SCHEMA VERSION 1 → 2 → 3 → 4 MIGRATION =====
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Thêm cột mới vào users
-      await db.execute('ALTER TABLE users ADD COLUMN weight REAL');
-      await db.execute('ALTER TABLE users ADD COLUMN blood_type TEXT');
+      await _addColumnIfNotExists(db, 'users', 'weight', 'REAL');
+      await _addColumnIfNotExists(db, 'users', 'blood_type', 'TEXT');
       // Thêm cột heart_rate vào body_measurements
-      await db.execute('ALTER TABLE body_measurements ADD COLUMN heart_rate INTEGER');
+      await _addColumnIfNotExists(db, 'body_measurements', 'heart_rate', 'INTEGER');
     }
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE users ADD COLUMN avatar TEXT');
+      await _addColumnIfNotExists(db, 'users', 'avatar', 'TEXT');
+    }
+    if (oldVersion < 4) {
+      await _addColumnIfNotExists(db, 'goals', 'status', 'TEXT');
     }
   }
 
@@ -67,6 +83,7 @@ class DatabaseHelper {
         target_value REAL NOT NULL,
         start_date   TEXT,
         end_date     TEXT,
+        status       TEXT,
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
       )
     ''');
@@ -298,6 +315,25 @@ class DatabaseHelper {
     return null;
   }
 
+  Future<List<Map<String, dynamic>>> getBodyMeasurements(int userId) async {
+    final db = await database;
+    return await db.query(
+      'body_measurements',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date ASC',
+    );
+  }
+
+  Future<int> deleteBodyMeasurement(int measurementId) async {
+    final db = await database;
+    return await db.delete(
+      'body_measurements',
+      where: 'measurement_id = ?',
+      whereArgs: [measurementId],
+    );
+  }
+
   Future<int?> getLatestHeartRate(int userId) async {
     final meas = await getLatestBodyMeasurement(userId);
     if (meas != null && meas['heart_rate'] != null) {
@@ -376,6 +412,42 @@ class DatabaseHelper {
         limit: 1);
     if (result.isNotEmpty) return result.first;
     return null;
+  }
+
+  // ===================================================
+  // GOALS
+  // ===================================================
+
+  Future<int> insertGoal(Map<String, dynamic> goal) async {
+    final db = await database;
+    return await db.insert('goals', goal,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getActiveGoal(int userId) async {
+    final db = await database;
+    final result = await db.query('goals',
+        where: 'user_id = ? AND status = ?',
+        whereArgs: [userId, 'ACTIVE'],
+        orderBy: 'goal_id DESC',
+        limit: 1);
+    if (result.isNotEmpty) return result.first;
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getGoalsByUser(int userId) async {
+    final db = await database;
+    return await db.query('goals',
+        where: 'user_id = ?',
+        whereArgs: [userId],
+        orderBy: 'goal_id DESC');
+  }
+
+  Future<int> deleteGoal(int goalId) async {
+    final db = await database;
+    return await db.delete('goals',
+        where: 'goal_id = ?',
+        whereArgs: [goalId]);
   }
 
   // ===================================================

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:frontend/data/models/user.dart';
 import 'package:frontend/provider/user_provider.dart';
@@ -5,6 +6,10 @@ import 'package:provider/provider.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/services/user-service.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:frontend/services/notification_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -22,6 +27,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   String? _gender;
   String? _bloodType;
+  String? _avatarUrl;
   bool _isLoading = false;
 
   final List<String> _genders = ['MALE', 'FEMALE'];
@@ -53,12 +59,59 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     _gender = user?.gender;
     if (_gender == null || !_genders.contains(_gender)) {
-      _gender = 'Nam';
+      _gender = 'MALE';
     }
 
     _bloodType = user?.bloodType;
     if (_bloodType == null || !_bloodTypes.contains(_bloodType)) {
       _bloodType = 'O+';
+    }
+
+    _avatarUrl = user?.avatar;
+  }
+
+  ImageProvider _buildAvatarImage(String? path) {
+    if (path == null || path.isEmpty) {
+      return const AssetImage('assets/images/profile-image.jpg');
+    }
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return NetworkImage(path);
+    }
+    return FileImage(File(path));
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: source,
+        maxWidth: 500,
+        maxHeight: 500,
+        imageQuality: 80,
+      );
+
+      if (image != null) {
+        final directory = await getApplicationDocumentsDirectory();
+        final String fileName =
+            'avatar_${DateTime.now().millisecondsSinceEpoch}${p.extension(image.path)}';
+        final String savedPath = p.join(directory.path, fileName);
+
+        await File(image.path).copy(savedPath);
+
+        setState(() {
+          _avatarUrl = savedPath;
+        });
+      }
+    } catch (e) {
+      print("Lỗi khi chọn/chụp ảnh: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Không thể chọn hoặc chụp ảnh: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -108,6 +161,246 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  void _showAvatarPicker() {
+    final TextEditingController urlController = TextEditingController(
+      text: _avatarUrl,
+    );
+    final List<String> presets = [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop',
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop',
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop',
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop',
+      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop',
+      'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&h=150&fit=crop',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: EdgeInsets.only(
+            top: 24,
+            left: 24,
+            right: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Chọn ảnh đại diện',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111111),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Color(0xFF6C757D)),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pop(context);
+                        _pickImage(ImageSource.camera);
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE7F1FF),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Column(
+                          children: [
+                            Icon(
+                              Icons.camera_alt,
+                              color: Color(0xFF0F75F4),
+                              size: 28,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Chụp ảnh',
+                              style: TextStyle(
+                                color: Color(0xFF0F75F4),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pop(context);
+                        _pickImage(ImageSource.gallery);
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F6FB),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Column(
+                          children: [
+                            Icon(
+                              Icons.photo_library,
+                              color: Color(0xFF6C757D),
+                              size: 28,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Thư viện',
+                              style: TextStyle(
+                                color: Color(0xFF6C757D),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Divider(color: Color(0xFFEBECEE), height: 1),
+              const SizedBox(height: 20),
+              const Text(
+                'Hoặc chọn ảnh mẫu có sẵn:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6C757D),
+                ),
+              ),
+              const SizedBox(height: 12),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: presets.length,
+                itemBuilder: (context, index) {
+                  final presetUrl = presets[index];
+                  final isSelected = _avatarUrl == presetUrl;
+                  return GestureDetector(
+                    onTap: () {
+                      setModalState(() {
+                        _avatarUrl = presetUrl;
+                        urlController.text = presetUrl;
+                      });
+                      setState(() {});
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF0F75F4)
+                              : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
+                      child: CircleAvatar(
+                        backgroundImage: NetworkImage(presetUrl),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Hoặc nhập liên kết ảnh tùy chọn (URL):',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6C757D),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: urlController,
+                decoration: InputDecoration(
+                  hintText: 'https://example.com/image.png',
+                  hintStyle: const TextStyle(color: Color(0xFFADB5BD)),
+                  filled: true,
+                  fillColor: const Color(0xFFF4F6FB),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.check, color: Color(0xFF0F75F4)),
+                    onPressed: () {
+                      if (urlController.text.trim().isNotEmpty) {
+                        setState(() {
+                          _avatarUrl = urlController.text.trim();
+                        });
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                ),
+                onChanged: (val) {
+                  setModalState(() {
+                    _avatarUrl = val.trim();
+                  });
+                  setState(() {});
+                },
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F75F4),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Hoàn tất',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _saveProfile() async {
     if (_formKey.currentState!.validate()) {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
@@ -125,44 +418,94 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           height: double.tryParse(_heightController.text),
           weight: double.tryParse(_weightController.text),
           bloodType: _bloodType,
+          avatar: _avatarUrl,
         );
 
+        bool isSavedOnServer = false;
+        bool isOffline = false;
+        String errorMessage = "Đã xảy ra lỗi khi lưu hồ sơ.";
+
         try {
-          // 1. Update on remote backend API
           final ApiService apiService = ApiService();
           final UserService userService = UserService(apiService);
 
-          if (updatedUser.endUser != null) {
-            await userService.updateEndUserProfile(
-              updatedUser.endUser!.toJson(),
+          if (updatedUser.userId != null) {
+            // Construct a clean patch payload matching EndUsersPatchRequest DTO
+            final Map<String, dynamic> patchData = {
+              'fullName': updatedUser.endUser!.name,
+              'birthDate': updatedUser.endUser!.dateOfBirth,
+              'gender': updatedUser.endUser!.gender,
+              'height': updatedUser.endUser!.height,
+              'weight': updatedUser.endUser!.weight,
+              'bloodType': updatedUser.endUser!.bloodType,
+              'avatar': updatedUser.endUser!.avatar,
+            };
+
+            final response = await userService.updateEndUserProfile(
+              updatedUser.userId!,
+              patchData,
             );
+
+            if (response != null) {
+              if (response.statusCode == 200 || response.statusCode == 201) {
+                isSavedOnServer = true;
+              } else {
+                isSavedOnServer = false;
+                final responseData = response.data;
+                if (responseData is Map<String, dynamic> &&
+                    responseData.containsKey('message')) {
+                  errorMessage = responseData['message'];
+                } else {
+                  errorMessage = "Lỗi máy chủ (${response.statusCode})";
+                }
+              }
+            } else {
+              isOffline = true;
+            }
           }
         } catch (e) {
-          // Fallback to offline mode
           print("Lỗi khi cập nhật lên server: $e");
+          isOffline = true;
         }
 
-        // 2. Update in SQLite Database
-        final UserController userController = UserController();
-        await userController.updateUser(updatedUser);
+        if (isSavedOnServer || isOffline) {
+          // 2. Update in SQLite Database
+          final UserController userController = UserController();
+          await userController.updateUser(updatedUser);
 
-        // 3. Update in state Provider
-        userProvider.setUser(updatedUser);
+          // 3. Update in state Provider
+          userProvider.setUser(updatedUser);
 
-        setState(() {
-          _isLoading = false;
-        });
+          setState(() {
+            _isLoading = false;
+          });
 
-        if (!mounted) return;
+          if (isSavedOnServer) {
+            NotificationService().showNotification(
+              id: 1,
+              title: "Cập nhật thành công",
+              body: "Thông tin hồ sơ của bạn đã được lưu lại thành công.",
+            );
+          } else {
+            NotificationService().showNotification(
+              id: 2,
+              title: "Lưu tạm thời (Offline)",
+              body: "Đã lưu hồ sơ cục bộ. Không thể kết nối tới máy chủ.",
+            );
+          }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cập nhật hồ sơ thành công!'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        Navigator.pop(context);
+          if (!mounted) return;
+          Navigator.pop(context);
+        } else {
+          setState(() {
+            _isLoading = false;
+          });
+          NotificationService().showNotification(
+            id: 3,
+            title: "Cập nhật thất bại",
+            body: errorMessage,
+          );
+        }
       }
     }
   }
@@ -196,43 +539,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar edit mock
+              // Avatar edit
               Center(
-                child: Stack(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFF0F75F4).withValues(alpha: 0.2),
-                          width: 2,
-                        ),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 52,
-                        backgroundImage: AssetImage(
-                          'assets/images/profile-image.jpg',
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 2,
-                      right: 2,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF0F75F4),
+                child: GestureDetector(
+                  onTap: _showAvatarPicker,
+                  child: Stack(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(
+                              0xFF0F75F4,
+                            ).withValues(alpha: 0.2),
+                            width: 2,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          size: 16,
-                          color: Colors.white,
+                        child: CircleAvatar(
+                          radius: 52,
+                          backgroundImage: _buildAvatarImage(_avatarUrl),
                         ),
                       ),
-                    ),
-                  ],
+                      Positioned(
+                        bottom: 2,
+                        right: 2,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF0F75F4),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 32),

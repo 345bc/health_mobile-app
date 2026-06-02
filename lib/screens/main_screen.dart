@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/screens/log_screen.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
+import 'goal_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -16,6 +17,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _pages = const [
     HomeScreen(),
     LogScreen(),
+    GoalScreen(),
     ProfileScreen(),
   ];
 
@@ -64,6 +66,11 @@ class _MainScreenState extends State<MainScreen> {
           icon: Icon(Icons.edit_note_rounded),
           selectedIcon: Icon(Icons.edit_note_rounded),
           label: 'Ghi chép',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.track_changes_outlined),
+          selectedIcon: Icon(Icons.track_changes),
+          label: 'Mục tiêu',
         ),
         NavigationDestination(
           icon: Icon(Icons.person_2_rounded),

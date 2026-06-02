@@ -6,6 +6,7 @@ class EndUser {
   double? height;
   double? weight;
   String? bloodType;
+  String? avatar;
 
   EndUser({
     this.id,
@@ -15,6 +16,7 @@ class EndUser {
     this.height,
     this.weight,
     this.bloodType,
+    this.avatar,
   });
 
   Map<String, dynamic> toMap() {
@@ -26,6 +28,7 @@ class EndUser {
       'height': height,
       'weight': weight,
       'blood_type': bloodType,
+      'avatar': avatar,
     };
   }
 
@@ -38,6 +41,7 @@ class EndUser {
       height: (map['height'] is num) ? (map['height'] as num).toDouble() : null,
       weight: (map['weight'] is num) ? (map['weight'] as num).toDouble() : null,
       bloodType: map['bloodType'] ?? map['blood_type'],
+      avatar: map['avatar'],
     );
   }
 
@@ -49,6 +53,7 @@ class EndUser {
     double? height,
     double? weight,
     String? bloodType,
+    String? avatar,
   }) {
     return EndUser(
       id: id ?? this.id,
@@ -58,6 +63,7 @@ class EndUser {
       height: height ?? this.height,
       weight: weight ?? this.weight,
       bloodType: bloodType ?? this.bloodType,
+      avatar: avatar ?? this.avatar,
     );
   }
 
@@ -70,6 +76,7 @@ class EndUser {
       'height': height,
       'weight': weight,
       'bloodType': bloodType,
+      'avatar': avatar,
     };
   }
 }

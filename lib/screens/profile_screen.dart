@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/user-service.dart';
@@ -9,6 +10,8 @@ import 'package:frontend/data/models/end_user.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/screens/sign-in_screen.dart';
 import 'package:frontend/screens/editprofile_screen.dart';
+import 'package:frontend/screens/account_screen.dart';
+import 'package:frontend/screens/goal_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -171,6 +174,16 @@ class ProfileHeader extends StatelessWidget {
 
   const ProfileHeader({super.key, this.user});
 
+  ImageProvider _buildAvatarImage(String? path) {
+    if (path == null || path.isEmpty) {
+      return const AssetImage('assets/images/profile-image.jpg');
+    }
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return NetworkImage(path);
+    }
+    return FileImage(File(path));
+  }
+
   @override
   Widget build(BuildContext context) {
     final String displayName = user?.user_name ?? 'Chưa cập nhật';
@@ -198,12 +211,12 @@ class ProfileHeader extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(4),
           decoration: const BoxDecoration(shape: BoxShape.circle),
-          child: const CircleAvatar(
+          child: CircleAvatar(
             radius: 55,
             backgroundColor: Colors.white,
             child: CircleAvatar(
               radius: 52,
-              backgroundImage: AssetImage('assets/images/profile-image.jpg'),
+              backgroundImage: _buildAvatarImage(user?.avatar),
             ),
           ),
         ),
@@ -387,18 +400,25 @@ class AppSettingsSection extends StatelessWidget {
                     indent: 56,
                   ),
                   _buildSettingItem(
+                    icon: Icons.track_changes_rounded,
+                    title: 'Mục tiêu sức khỏe',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const GoalScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(
+                    height: 1,
+                    color: Color(0xFFEBECEE),
+                    indent: 56,
+                  ),
+                  _buildSettingItem(
                     icon: Icons.watch,
                     title: 'Kết nối thiết bị',
-                    // onTap: () {
-                    //   Navigator.push(
-                    //     context,
-                    //     MaterialPageRoute(
-                    //       builder: (context) => const SettingDetailScreen(
-                    //         title: 'Kết nối thiết bị',
-                    //       ),
-                    //     ),
-                    //   );
-                    // },
                   ),
                   const Divider(
                     height: 1,
@@ -407,36 +427,15 @@ class AppSettingsSection extends StatelessWidget {
                   ),
                   _buildSettingItem(
                     icon: Icons.lock_outline,
-                    title: 'Bảo mật & Riêng tư',
-                    // onTap: () {
-                    //   Navigator.push(
-                    //     context,
-                    //     MaterialPageRoute(
-                    //       builder: (context) => const SettingDetailScreen(
-                    //         title: 'Bảo mật & Riêng tư',
-                    //       ),
-                    //     ),
-                    //   );
-                    // },
-                  ),
-                  const Divider(
-                    height: 1,
-                    color: Color(0xFFEBECEE),
-                    indent: 56,
-                  ),
-                  _buildSettingItem(
-                    icon: Icons.help_outline,
-                    title: 'Trợ giúp & Hỗ trợ',
-                    // onTap: () {
-                    //   Navigator.push(
-                    //     context,
-                    //     MaterialPageRoute(
-                    //       builder: (context) => const SettingDetailScreen(
-                    //         title: 'Trợ giúp & Hỗ trợ',
-                    //       ),
-                    //     ),
-                    //   );
-                    // },
+                    title: 'Tài khoản',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AccountScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
