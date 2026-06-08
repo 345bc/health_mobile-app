@@ -404,6 +404,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F75F4)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _loadMeals,
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddMealDialog,

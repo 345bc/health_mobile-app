@@ -240,6 +240,13 @@ class _SleepScreenState extends State<SleepScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF5B3D8D)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _load,
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showLogDialog,

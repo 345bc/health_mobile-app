@@ -72,7 +72,7 @@ class _WaterScreenState extends State<WaterScreen>
         );
       }
     }
-    
+
     try {
       final total = await _db.getTodayTotalWater(userId);
       final logs = await _db.getWaterLogsForDate(
@@ -264,6 +264,13 @@ class _WaterScreenState extends State<WaterScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0284C7)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _loadData,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(

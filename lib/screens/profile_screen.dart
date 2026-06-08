@@ -36,52 +36,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final User? currentUser = userProvider.getUser();
     if (currentUser == null || currentUser.userId == null) return;
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      final response = await _userService.getEndUserProfile(
-        currentUser.userId!,
-      );
-      if (response != null && response.statusCode == 200) {
-        final Map<String, dynamic> responseData = response.data is String
-            ? jsonDecode(response.data)
-            : response.data as Map<String, dynamic>;
+      // Gọi song song cả 2 API: thông tin tài khoản + hồ sơ cá nhân
+      final results = await Future.wait([
+        _userService.getUserById(currentUser.userId!),
+        _userService.getEndUserProfile(currentUser.userId!),
+      ]);
 
-        final dynamic data = responseData['data'] ?? responseData;
-        if (data is Map<String, dynamic>) {
-          final EndUser fetchedEndUser = EndUser.fromMap(data);
-          final User updatedUser = currentUser.copyWith(
-            endUser: fetchedEndUser,
-          );
+      final userResponse   = results[0];
+      final profileResponse = results[1];
 
-          // Update in local DB
-          await UserController().updateUser(updatedUser);
+      // --- Merge thông tin từ /users/{id} ---
+      String mergedEmail        = currentUser.email;
+      String mergedName         = currentUser.user_name;
+      String mergedPasswordHash = currentUser.passwordHash;
 
-          // Update in Provider
-          userProvider.setUser(updatedUser);
-        }
+      if (userResponse != null && userResponse.statusCode == 200) {
+        final raw = userResponse.data is String
+            ? jsonDecode(userResponse.data as String)
+            : userResponse.data as Map<String, dynamic>;
+        final uData = (raw['data'] ?? raw) as Map<String, dynamic>;
+        mergedEmail        = uData['email']        as String? ?? mergedEmail;
+        mergedName         = (uData['name'] ?? uData['user_name']) as String? ?? mergedName;
+        mergedPasswordHash = (uData['passwordHash'] ?? uData['password_hash']) as String? ?? mergedPasswordHash;
       }
-    } catch (e) {
-      print("Lỗi khi tải thông tin từ server: $e");
+
+      // --- Merge thông tin từ /end-users/user/{id} ---
+      EndUser mergedEndUser = currentUser.endUser ?? EndUser(id: currentUser.userId, name: mergedName);
+
+      if (profileResponse != null && profileResponse.statusCode == 200) {
+        final raw = profileResponse.data is String
+            ? jsonDecode(profileResponse.data as String)
+            : profileResponse.data as Map<String, dynamic>;
+        final pData = (raw['data'] ?? raw) as Map<String, dynamic>;
+        final fetched = EndUser.fromMap(pData);
+        // Merge: ưu tiên dữ liệu từ API, fallback về giá trị local
+        mergedEndUser = EndUser(
+          id:          fetched.id          ?? mergedEndUser.id,
+          name:        fetched.name        ?? mergedName,
+          dateOfBirth: fetched.dateOfBirth ?? mergedEndUser.dateOfBirth,
+          gender:      fetched.gender      ?? mergedEndUser.gender,
+          height:      fetched.height      ?? mergedEndUser.height,
+          weight:      fetched.weight      ?? mergedEndUser.weight,
+          bloodType:   fetched.bloodType   ?? mergedEndUser.bloodType,
+          avatar:      fetched.avatar      ?? mergedEndUser.avatar,
+        );
+      }
+
+      // Tạo User object đã cập nhật đầy đủ
+      final updatedUser = User(
+        userId:       currentUser.userId,
+        email:        mergedEmail,
+        passwordHash: mergedPasswordHash,
+        user_name:    mergedName,
+        endUser:      mergedEndUser,
+      );
+
+      // Lưu vào SQLite local
+      await UserController().updateUser(updatedUser);
+
+      // Cập nhật vào Provider để UI rebuild
+      userProvider.setUser(updatedUser);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Không thể kết nối với máy chủ để tải thông tin hồ sơ mới nhất."),
-            backgroundColor: Colors.redAccent,
+            content: Text('✅ Đã đồng bộ hồ sơ từ máy chủ.'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Lỗi khi đồng bộ hồ sơ: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Không thể kết nối máy chủ. Hiển thị dữ liệu ngoại tuyến."),
+            backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -90,23 +134,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: const Color(0xFF111111),
+        automaticallyImplyLeading: false,
+        title: const Text(
+          'Hồ sơ',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F75F4)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _fetchProfile,
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
-          : SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-              child: Column(
-                children: [
-                  const SizedBox(height: 40),
-                  ProfileHeader(user: user),
-                  const SizedBox(height: 24),
-                  PersonalInfoCard(user: user),
-                  const SizedBox(height: 32),
-                  const AppSettingsSection(),
-                  const SizedBox(height: 32),
-                  _buildLogoutButton(context),
-                  const SizedBox(height: 100),
-                ],
+          : RefreshIndicator(
+              onRefresh: _fetchProfile,
+              color: const Color(0xFF0F75F4),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 24),
+                    ProfileHeader(user: user),
+                    const SizedBox(height: 24),
+                    PersonalInfoCard(user: user),
+                    const SizedBox(height: 32),
+                    const AppSettingsSection(),
+                    const SizedBox(height: 32),
+                    _buildLogoutButton(context),
+                    const SizedBox(height: 100),
+                  ],
+                ),
               ),
             ),
     );

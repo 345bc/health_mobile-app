@@ -134,6 +134,13 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
           icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _loadData,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: activeColor,

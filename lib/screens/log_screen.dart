@@ -514,59 +514,78 @@ class _LogScreenState extends State<LogScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
+      appBar: AppBar(
+        title: const Text(
+          'Ghi chép',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: const Color(0xFF111111),
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F75F4)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _initLogs,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: _isLoading
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
               )
-            : SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0,
-                  vertical: 16.0,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const LogHeader(),
-                    const SizedBox(height: 32),
-
-                    const Text(
-                      'CHỌN MỤC GHI CHÉP',
-                      style: TextStyle(
-                        color: Color(0xFF495057),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
+            : RefreshIndicator(
+                onRefresh: _initLogs,
+                color: const Color(0xFF0F75F4),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20.0,
+                    vertical: 16.0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      const Text(
+                        'CHỌN MỤC GHI CHÉP',
+                        style: TextStyle(
+                          color: Color(0xFF495057),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    CategoryGrid(
-                      weightText: _weightText,
-                      bloodPressureText: _bloodPressureText,
-                      mealsText: _mealsText,
-                      moodText: _moodText,
-                      onTapCategory: _onTapCategory,
-                    ),
+                      const SizedBox(height: 16),
+                      CategoryGrid(
+                        weightText: _weightText,
+                        bloodPressureText: _bloodPressureText,
+                        mealsText: _mealsText,
+                        moodText: _moodText,
+                        onTapCategory: _onTapCategory,
+                      ),
 
-                    const SizedBox(height: 32),
-                    ProgressCard(
-                      ontap: () => _selectDate(),
-                      streakCount: _streakCount,
-                      weeklyCompletionRates: _weeklyCompletionRates,
-                      selectedDate: _selectedDate,
-                      onDaySelected: (date) {
-                        setState(() => _selectedDate = date);
-                        _loadStatsForDate();
-                      },
-                    ),
+                      const SizedBox(height: 32),
+                      ProgressCard(
+                        ontap: () => _selectDate(),
+                        streakCount: _streakCount,
+                        weeklyCompletionRates: _weeklyCompletionRates,
+                        selectedDate: _selectedDate,
+                        onDaySelected: (date) {
+                          setState(() => _selectedDate = date);
+                          _loadStatsForDate();
+                        },
+                      ),
 
-                    const SizedBox(height: 24),
-                    const AdviceCard(),
+                      const SizedBox(height: 24),
+                      const AdviceCard(),
 
-                    const SizedBox(height: 24),
-                    const QuoteBanner(),
-                  ],
+                      const SizedBox(height: 24),
+                      const QuoteBanner(),
+                    ],
+                  ),
                 ),
               ),
       ),

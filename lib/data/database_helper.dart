@@ -31,9 +31,16 @@ class DatabaseHelper {
   }
 
   // Helper to add a column safely only if it does not already exist
-  Future<void> _addColumnIfNotExists(Database db, String table, String column, String type) async {
+  Future<void> _addColumnIfNotExists(
+    Database db,
+    String table,
+    String column,
+    String type,
+  ) async {
     try {
-      final List<Map<String, dynamic>> columns = await db.rawQuery("PRAGMA table_info($table)");
+      final List<Map<String, dynamic>> columns = await db.rawQuery(
+        "PRAGMA table_info($table)",
+      );
       final bool exists = columns.any((c) => c['name'] == column);
       if (!exists) {
         await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
@@ -50,7 +57,12 @@ class DatabaseHelper {
       await _addColumnIfNotExists(db, 'users', 'weight', 'REAL');
       await _addColumnIfNotExists(db, 'users', 'blood_type', 'TEXT');
       // Thêm cột heart_rate vào body_measurements
-      await _addColumnIfNotExists(db, 'body_measurements', 'heart_rate', 'INTEGER');
+      await _addColumnIfNotExists(
+        db,
+        'body_measurements',
+        'heart_rate',
+        'INTEGER',
+      );
     }
     if (oldVersion < 3) {
       await _addColumnIfNotExists(db, 'users', 'avatar', 'TEXT');
@@ -218,28 +230,43 @@ class DatabaseHelper {
 
   Future<int> insertUser(User user) async {
     final db = await database;
-    return await db.insert('users', user.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.ignore);
+    return await db.insert(
+      'users',
+      user.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   Future<User?> getUserByEmail(String email) async {
     final db = await database;
-    final maps = await db.query('users', where: 'email = ?', whereArgs: [email]);
+    final maps = await db.query(
+      'users',
+      where: 'email = ?',
+      whereArgs: [email],
+    );
     if (maps.isNotEmpty) return User.fromMap(maps.first);
     return null;
   }
 
   Future<User?> getUserById(int userId) async {
     final db = await database;
-    final maps = await db.query('users', where: 'user_id = ?', whereArgs: [userId]);
+    final maps = await db.query(
+      'users',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
     if (maps.isNotEmpty) return User.fromMap(maps.first);
     return null;
   }
 
   Future<int> updateUser(User user) async {
     final db = await database;
-    return await db.update('users', user.toMap(),
-        where: 'user_id = ?', whereArgs: [user.userId]);
+    return await db.update(
+      'users',
+      user.toMap(),
+      where: 'user_id = ?',
+      whereArgs: [user.userId],
+    );
   }
 
   Future<List<User>> getAllUsers() async {
@@ -254,19 +281,24 @@ class DatabaseHelper {
 
   Future<int> insertActivity(Activity activity) async {
     final db = await database;
-    return await db.insert('activities', activity.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return await db.insert(
+      'activities',
+      activity.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   /// Lấy activity của ngày hôm nay
   Future<Activity?> getTodayActivity(int userId) async {
     final db = await database;
     final today = _today();
-    final maps = await db.query('activities',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, today],
-        orderBy: 'activity_id DESC',
-        limit: 1);
+    final maps = await db.query(
+      'activities',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, today],
+      orderBy: 'activity_id DESC',
+      limit: 1,
+    );
     if (maps.isNotEmpty) return Activity.fromMap(maps.first);
     return null;
   }
@@ -274,11 +306,13 @@ class DatabaseHelper {
   /// Lấy activity của ngày cụ thể
   Future<Activity?> getActivityForDate(int userId, String date) async {
     final db = await database;
-    final maps = await db.query('activities',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, date],
-        orderBy: 'activity_id DESC',
-        limit: 1);
+    final maps = await db.query(
+      'activities',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, date],
+      orderBy: 'activity_id DESC',
+      limit: 1,
+    );
     if (maps.isNotEmpty) return Activity.fromMap(maps.first);
     return null;
   }
@@ -286,11 +320,13 @@ class DatabaseHelper {
   /// Lấy 7 ngày gần nhất
   Future<List<Activity>> getRecentActivities(int userId, {int days = 7}) async {
     final db = await database;
-    final maps = await db.query('activities',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'date DESC',
-        limit: days);
+    final maps = await db.query(
+      'activities',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC',
+      limit: days,
+    );
     return maps.map((m) => Activity.fromMap(m)).toList();
   }
 
@@ -314,28 +350,35 @@ class DatabaseHelper {
 
   Future<int> insertSleep(SleepLog sleep) async {
     final db = await database;
-    return await db.insert('sleeps', sleep.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return await db.insert(
+      'sleeps',
+      sleep.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<SleepLog?> getLastSleep(int userId) async {
     final db = await database;
-    final maps = await db.query('sleeps',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'date DESC, sleep_id DESC',
-        limit: 1);
+    final maps = await db.query(
+      'sleeps',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC, sleep_id DESC',
+      limit: 1,
+    );
     if (maps.isNotEmpty) return SleepLog.fromMap(maps.first);
     return null;
   }
 
   Future<List<SleepLog>> getRecentSleeps(int userId, {int days = 7}) async {
     final db = await database;
-    final maps = await db.query('sleeps',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'date DESC',
-        limit: days);
+    final maps = await db.query(
+      'sleeps',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC',
+      limit: days,
+    );
     return maps.map((m) => SleepLog.fromMap(m)).toList();
   }
 
@@ -345,17 +388,22 @@ class DatabaseHelper {
 
   Future<int> insertBodyMeasurement(Map<String, dynamic> measurement) async {
     final db = await database;
-    return await db.insert('body_measurements', measurement,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return await db.insert(
+      'body_measurements',
+      measurement,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<Map<String, dynamic>?> getLatestBodyMeasurement(int userId) async {
     final db = await database;
-    final result = await db.query('body_measurements',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'date DESC, measurement_id DESC',
-        limit: 1);
+    final result = await db.query(
+      'body_measurements',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC, measurement_id DESC',
+      limit: 1,
+    );
     if (result.isNotEmpty) return result.first;
     return null;
   }
@@ -392,8 +440,14 @@ class DatabaseHelper {
   // ===================================================
 
   Future<int> insertMealLog(
-      int userId, String mealType, String foodName, int calories,
-      {double protein = 0, double carbs = 0, double fat = 0}) async {
+    int userId,
+    String mealType,
+    String foodName,
+    int calories, {
+    double protein = 0,
+    double carbs = 0,
+    double fat = 0,
+  }) async {
     final db = await database;
     final foodId = await db.insert('foods', {
       'name': foodName,
@@ -413,29 +467,38 @@ class DatabaseHelper {
 
   Future<List<Meal>> getMealsForDate(int userId, String date) async {
     final db = await database;
-    final maps = await db.rawQuery('''
+    final maps = await db.rawQuery(
+      '''
       SELECT nl.log_id, nl.user_id, nl.date, nl.meal_type,
              f.name AS food_name, f.calories, f.protein, f.carbs, f.fat
       FROM nutrition_logs nl
       JOIN foods f ON nl.food_id = f.food_id
       WHERE nl.user_id = ? AND nl.date = ?
       ORDER BY nl.log_id ASC
-    ''', [userId, date]);
+    ''',
+      [userId, date],
+    );
     return maps.map((m) => Meal.fromMap(m)).toList();
   }
 
   Future<int> getMealCountToday(int userId) async {
     final db = await database;
-    final count = Sqflite.firstIntValue(await db.rawQuery(
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery(
         'SELECT COUNT(*) FROM nutrition_logs WHERE user_id = ? AND date = ?',
-        [userId, _today()]));
+        [userId, _today()],
+      ),
+    );
     return count ?? 0;
   }
 
   Future<int> deleteMeal(int logId) async {
     final db = await database;
-    return await db.delete('nutrition_logs',
-        where: 'log_id = ?', whereArgs: [logId]);
+    return await db.delete(
+      'nutrition_logs',
+      where: 'log_id = ?',
+      whereArgs: [logId],
+    );
   }
 
   // ===================================================
@@ -444,17 +507,22 @@ class DatabaseHelper {
 
   Future<int> insertMoodEntry(Map<String, dynamic> moodEntry) async {
     final db = await database;
-    return await db.insert('mood_entries', moodEntry,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return await db.insert(
+      'mood_entries',
+      moodEntry,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<Map<String, dynamic>?> getLatestMoodEntry(int userId) async {
     final db = await database;
-    final result = await db.query('mood_entries',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'date DESC, mood_id DESC',
-        limit: 1);
+    final result = await db.query(
+      'mood_entries',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC, mood_id DESC',
+      limit: 1,
+    );
     if (result.isNotEmpty) return result.first;
     return null;
   }
@@ -465,16 +533,24 @@ class DatabaseHelper {
 
   Future<int> insertWaterLog(Map<String, dynamic> waterLog) async {
     final db = await database;
-    return await db.insert('water_logs', waterLog,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return await db.insert(
+      'water_logs',
+      waterLog,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getWaterLogsForDate(int userId, String date) async {
+  Future<List<Map<String, dynamic>>> getWaterLogsForDate(
+    int userId,
+    String date,
+  ) async {
     final db = await database;
-    return await db.query('water_logs',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, date],
-        orderBy: 'water_log_id DESC');
+    return await db.query(
+      'water_logs',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, date],
+      orderBy: 'water_log_id DESC',
+    );
   }
 
   Future<int> getTodayTotalWater(int userId) async {
@@ -492,16 +568,23 @@ class DatabaseHelper {
 
   Future<int> deleteWaterLog(int waterLogId) async {
     final db = await database;
-    return await db.delete('water_logs',
-        where: 'water_log_id = ?',
-        whereArgs: [waterLogId]);
+    return await db.delete(
+      'water_logs',
+      where: 'water_log_id = ?',
+      whereArgs: [waterLogId],
+    );
   }
 
   // ===================================================
   // REMINDERS
   // ===================================================
 
-  Future<int> saveReminder(int userId, String type, String time, bool isEnabled) async {
+  Future<int> saveReminder(
+    int userId,
+    String type,
+    String time,
+    bool isEnabled,
+  ) async {
     final db = await database;
     final int enabledVal = isEnabled ? 1 : 0;
     final List<Map<String, dynamic>> existing = await db.query(
@@ -518,15 +601,12 @@ class DatabaseHelper {
         whereArgs: [userId, type],
       );
     } else {
-      return await db.insert(
-        'reminders',
-        {
-          'user_id': userId,
-          'type': type,
-          'time': time,
-          'is_enabled': enabledVal,
-        },
-      );
+      return await db.insert('reminders', {
+        'user_id': userId,
+        'type': type,
+        'time': time,
+        'is_enabled': enabledVal,
+      });
     }
   }
 

@@ -317,6 +317,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F75F4)),
+            tooltip: 'Tải lại',
+            onPressed: _isLoading ? null : _load,
+          ),
+          IconButton(
             icon: const Icon(Icons.edit_road),
             tooltip: 'Đặt mục tiêu bước chân',
             onPressed: _showTargetStepsDialog,

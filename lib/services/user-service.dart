@@ -78,6 +78,25 @@ class UserService {
     return await _tokenService.getUser();
   }
 
+  Future<Response?> getUserById(int userId) async {
+    try {
+      final token = await _tokenService.getToken();
+      final response = await _apiClient.dio.get(
+        '/users/$userId',
+        options: Options(
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
+        ),
+      );
+      return response;
+    } on DioException catch (e) {
+      debugPrint("Không thể lấy user info: ${e.message}");
+      return e.response;
+    } catch (e) {
+      debugPrint("Không thể lấy user info (lỗi hệ thống): $e");
+      return null;
+    }
+  }
+
   Future<Response?> getEndUserProfile(int userId) async {
     try {
       final token = await _tokenService.getToken();

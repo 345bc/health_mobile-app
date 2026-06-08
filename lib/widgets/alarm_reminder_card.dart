@@ -34,7 +34,10 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
 
   Future<void> _loadSetting() async {
     try {
-      final setting = await DatabaseHelper().getReminder(widget.userId, widget.type);
+      final setting = await DatabaseHelper().getReminder(
+        widget.userId,
+        widget.type,
+      );
       if (mounted) {
         if (setting != null) {
           final String timeStr = setting['time'] ?? '08:00';
@@ -92,7 +95,9 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
             ),
             backgroundColor: _isEnabled ? Colors.green : Colors.grey[700],
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
         if (widget.onSaved != null) widget.onSaved!();
@@ -107,7 +112,9 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
             content: Text('Không thể lưu cài đặt nhắc nhở: $e'),
             backgroundColor: Colors.red[700],
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       }
