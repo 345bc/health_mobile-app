@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/data/models/user.dart';
 import 'package:frontend/data/models/end_user.dart';
 import 'package:frontend/data/controller/user_controller.dart';
+import 'package:frontend/data/controller/water_controller.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
@@ -101,6 +102,13 @@ class _SplashScreenState extends State<SplashScreen>
             }
           } catch (e) {
             debugPrint("Lỗi đồng bộ hồ sơ khi khởi động: $e");
+          }
+
+          // Đồng bộ nhắc nhở từ server xuống SQLite
+          try {
+            await WaterController().refreshRemindersFromServer(user.userId!);
+          } catch (e) {
+            debugPrint("Lỗi đồng bộ nhắc nhở khi khởi động: $e");
           }
         }
       }

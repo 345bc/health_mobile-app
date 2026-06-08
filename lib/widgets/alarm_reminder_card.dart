@@ -57,9 +57,43 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
           setState(() => _isLoading = false);
         }
       }
+
+      // Đồng bộ từ server dưới nền
+      _syncReminderFromServer();
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
       print('[AlarmReminderCard] _loadSetting lỗi: $e');
+    }
+  }
+
+  Future<void> _syncReminderFromServer() async {
+    try {
+      await WaterController().refreshRemindersFromServer(widget.userId);
+      final newSetting = await DatabaseHelper().getReminder(
+        widget.userId,
+        widget.type,
+      );
+      if (newSetting != null && mounted) {
+        final String timeStr = newSetting['time'] ?? '08:00';
+        final parts = timeStr.split(':');
+        int hour = 8;
+        int minute = 0;
+        if (parts.length == 2) {
+          hour = int.tryParse(parts[0]) ?? 8;
+          minute = int.tryParse(parts[1]) ?? 0;
+        }
+        final bool isEnabled = (newSetting['is_enabled'] ?? 1) == 1;
+        final TimeOfDay timeOfDay = TimeOfDay(hour: hour, minute: minute);
+
+        if (_isEnabled != isEnabled || _selectedTime != timeOfDay) {
+          setState(() {
+            _isEnabled = isEnabled;
+            _selectedTime = timeOfDay;
+          });
+        }
+      }
+    } catch (e) {
+      print('[AlarmReminderCard] _syncReminderFromServer lỗi: $e');
     }
   }
 

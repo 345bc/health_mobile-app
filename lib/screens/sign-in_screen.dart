@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/controller/user_controller.dart';
+import 'package:frontend/data/controller/water_controller.dart';
 import 'package:frontend/data/models/user.dart';
 import 'package:frontend/data/models/end_user.dart';
 import 'package:frontend/screens/sign-up_screen.dart';
@@ -113,6 +114,13 @@ class _SigninScreenState extends State<SigninScreen> {
           }
         } catch (dbError) {
           debugPrint("Lỗi lưu user đầy đủ vào SQLite: $dbError");
+        }
+
+        // Đồng bộ nhắc nhở từ server xuống SQLite
+        try {
+          await WaterController().refreshRemindersFromServer(serverId);
+        } catch (reminderError) {
+          debugPrint("Lỗi đồng bộ nhắc nhở khi đăng nhập: $reminderError");
         }
 
         if (!mounted) return;

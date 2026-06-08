@@ -4,6 +4,7 @@ import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/services/water_service.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:frontend/services/reminder_service.dart';
 import 'package:sqflite/sqflite.dart';
 
 class WaterController {
@@ -14,15 +15,18 @@ class WaterController {
     DatabaseHelper? dbHelper,
     WaterService? waterService,
     NotificationService? notificationService,
+    ReminderService? reminderService,
   }) : _dbHelper = dbHelper ?? DatabaseHelper(),
        _waterService = waterService ?? WaterService(ApiService()),
-       _notificationService = notificationService ?? NotificationService();
+       _notificationService = notificationService ?? NotificationService(),
+       _reminderService = reminderService ?? ReminderService(ApiService());
 
   static set instance(WaterController mock) => _instance = mock;
 
   final DatabaseHelper _dbHelper;
   final WaterService _waterService;
   final NotificationService _notificationService;
+  final ReminderService _reminderService;
 
   static const Map<String, Map<String, dynamic>> reminderConfigs = {
     'vitals': {
@@ -186,7 +190,22 @@ class WaterController {
     // 1. Lưu SQLite (luôn luôn thực hiện)
     await _dbHelper.saveReminder(userId, type, time, isEnabled);
 
-    // 2. Thiết lập thông báo Local Notification
+    // 2. Đồng bộ lên server
+    final response = await _reminderService.saveReminder({
+      'userId': userId,
+      'type': type,
+      'time': time,
+      'isEnabled': isEnabled,
+    });
+
+    if (response == null) {
+      throw DioException(
+        requestOptions: RequestOptions(path: ''),
+        message: 'Không thể kết nối đến máy chủ.',
+      );
+    }
+
+    // 3. Thiết lập thông báo Local Notification
     final config = reminderConfigs[type.toLowerCase()];
     if (config == null) return;
 
@@ -217,6 +236,82 @@ class WaterController {
       }
     } else {
       await _notificationService.cancelNotification(notificationId);
+    }
+  }
+
+  /// Tải tất cả nhắc nhở từ server về SQLite và lên lịch thông báo cục bộ
+  Future<void> refreshRemindersFromServer(int userId) async {
+    final response = await _reminderService.getRemindersByUser(userId);
+    if (response == null) {
+      throw DioException(
+        requestOptions: RequestOptions(path: ''),
+        message: 'Không thể kết nối đến máy chủ.',
+      );
+    }
+
+    try {
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseBody =
+            response.data is Map<String, dynamic> ? response.data : {};
+        final dynamic rawList =
+            responseBody['data'] ?? responseBody['result'] ?? responseBody;
+
+        if (rawList is List) {
+          final db = await _dbHelper.database;
+
+          await db.transaction((txn) async {
+            await txn.delete(
+              'reminders',
+              where: 'user_id = ?',
+              whereArgs: [userId],
+            );
+
+            for (var item in rawList) {
+              if (item is Map<String, dynamic>) {
+                final String type = item['type'];
+                final String time = item['time'];
+                final bool isEnabled = item['isEnabled'] ?? false;
+                final int enabledVal = isEnabled ? 1 : 0;
+
+                await txn.insert('reminders', {
+                  'user_id': userId,
+                  'type': type,
+                  'time': time,
+                  'is_enabled': enabledVal,
+                }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+                // Thiết lập thông báo cục bộ tương ứng
+                final config = reminderConfigs[type.toLowerCase()];
+                if (config != null) {
+                  final int notificationId = config['id'] as int;
+                  final String title = config['title'] as String;
+                  final String body = config['body'] as String;
+
+                  if (isEnabled) {
+                    final parts = time.split(':');
+                    if (parts.length == 2) {
+                      final int hour = int.tryParse(parts[0]) ?? 8;
+                      final int minute = int.tryParse(parts[1]) ?? 0;
+
+                      await _notificationService.scheduleDailyNotification(
+                        id: notificationId,
+                        title: title,
+                        body: body,
+                        hour: hour,
+                        minute: minute,
+                      );
+                    }
+                  } else {
+                    await _notificationService.cancelNotification(notificationId);
+                  }
+                }
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Lỗi lưu reminders vào DB: $e');
     }
   }
 }
