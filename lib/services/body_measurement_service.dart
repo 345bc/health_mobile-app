@@ -8,17 +8,16 @@ class BodyMeasurementService {
 
   BodyMeasurementService(this._apiClient);
 
-  /// Ghi nhận sinh hiệu mới lên server (cân nặng, huyết áp, nhịp tim)
-  Future<Response?> createBodyMeasurement(Map<String, dynamic> measurementData) async {
+  Future<Response?> createBodyMeasurement(
+    Map<String, dynamic> measurementData,
+  ) async {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.post(
         '/body-measurements',
         data: measurementData,
         options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
@@ -35,9 +34,7 @@ class BodyMeasurementService {
       final response = await _apiClient.dio.get(
         '/body-measurements/user/$userId',
         options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
@@ -48,16 +45,17 @@ class BodyMeasurementService {
   }
 
   /// Cập nhật đo lường sinh hiệu trên server
-  Future<Response?> updateBodyMeasurement(int id, Map<String, dynamic> measurementData) async {
+  Future<Response?> updateBodyMeasurement(
+    int id,
+    Map<String, dynamic> measurementData,
+  ) async {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.put(
         '/body-measurements/$id',
         data: measurementData,
         options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
@@ -74,9 +72,7 @@ class BodyMeasurementService {
       final response = await _apiClient.dio.delete(
         '/body-measurements/$id',
         options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;

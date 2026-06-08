@@ -65,7 +65,7 @@ void main() {
 
   group('upsertTodayActivity', () {
     test('nên cập nhật server khi ĐÃ CÓ hoạt động hiện tại trong ngày', () async {
-      when(() => mockDbHelper.getTodayActivity(1)).thenAnswer((_) async => testActivity);
+      when(() => mockDbHelper.getActivityForDate(1, any())).thenAnswer((_) async => testActivity);
       when(() => mockDbHelper.upsertTodayActivity(any())).thenAnswer((_) async => 10);
       
       final mockResponse = MockResponse();
@@ -92,7 +92,7 @@ void main() {
     });
 
     test('nên tạo mới trên server và cập nhật SQLite ID khi CHƯA CÓ hoạt động trong ngày', () async {
-      when(() => mockDbHelper.getTodayActivity(1)).thenAnswer((_) async => null);
+      when(() => mockDbHelper.getActivityForDate(1, any())).thenAnswer((_) async => null);
       when(() => mockDbHelper.upsertTodayActivity(any())).thenAnswer((_) async => 5); // localId = 5
 
       final mockResponse = MockResponse();

@@ -271,6 +271,18 @@ class DatabaseHelper {
     return null;
   }
 
+  /// Lấy activity của ngày cụ thể
+  Future<Activity?> getActivityForDate(int userId, String date) async {
+    final db = await database;
+    final maps = await db.query('activities',
+        where: 'user_id = ? AND date = ?',
+        whereArgs: [userId, date],
+        orderBy: 'activity_id DESC',
+        limit: 1);
+    if (maps.isNotEmpty) return Activity.fromMap(maps.first);
+    return null;
+  }
+
   /// Lấy 7 ngày gần nhất
   Future<List<Activity>> getRecentActivities(int userId, {int days = 7}) async {
     final db = await database;
@@ -283,7 +295,7 @@ class DatabaseHelper {
   }
 
   Future<int> upsertTodayActivity(Activity activity) async {
-    final existing = await getTodayActivity(activity.userId);
+    final existing = await getActivityForDate(activity.userId, activity.date);
     if (existing != null) {
       final db = await database;
       return await db.update(

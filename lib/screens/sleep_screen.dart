@@ -59,6 +59,7 @@ class _SleepScreenState extends State<SleepScreen> {
   }
 
   Future<void> _showLogDialog() async {
+    DateTime selectedLogDate = DateTime.now();
     TimeOfDay bedTime = const TimeOfDay(hour: 22, minute: 30);
     TimeOfDay wakeTime = const TimeOfDay(hour: 6, minute: 30);
     int qualityScore = 4;
@@ -69,53 +70,76 @@ class _SleepScreenState extends State<SleepScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('Ghi nhận giấc ngủ'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            // Giờ ngủ
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.bedtime, color: Color(0xFF0F75F4)),
-              title: const Text('Giờ ngủ'),
-              trailing: Text(bedTime.format(ctx),
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              onTap: () async {
-                final t = await showTimePicker(
-                    context: ctx, initialTime: bedTime);
-                if (t != null) setDialogState(() => bedTime = t);
-              },
-            ),
-            // Giờ thức
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.wb_sunny, color: Colors.orange),
-              title: const Text('Giờ thức'),
-              trailing: Text(wakeTime.format(ctx),
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              onTap: () async {
-                final t = await showTimePicker(
-                    context: ctx, initialTime: wakeTime);
-                if (t != null) setDialogState(() => wakeTime = t);
-              },
-            ),
-            const SizedBox(height: 8),
-            // Chất lượng
-            Row(children: [
-              const Icon(Icons.star, color: Colors.orange, size: 18),
-              const SizedBox(width: 8),
-              const Text('Chất lượng: '),
-              Expanded(
-                child: Slider(
-                  value: qualityScore.toDouble(),
-                  min: 1, max: 5, divisions: 4,
-                  label: _qualityLabel(qualityScore),
-                  onChanged: (v) =>
-                      setDialogState(() => qualityScore = v.toInt()),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              // Chọn ngày
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.calendar_today, color: Color(0xFF0F75F4)),
+                title: const Text('Ngày ghi nhận'),
+                trailing: Text(
+                  DateFormat('dd/MM/yyyy').format(selectedLogDate),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
+                onTap: () async {
+                  final DateTime? picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: selectedLogDate,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    setDialogState(() => selectedLogDate = picked);
+                  }
+                },
               ),
+              // Giờ ngủ
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.bedtime, color: Color(0xFF0F75F4)),
+                title: const Text('Giờ ngủ'),
+                trailing: Text(bedTime.format(ctx),
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () async {
+                  final t = await showTimePicker(
+                      context: ctx, initialTime: bedTime);
+                  if (t != null) setDialogState(() => bedTime = t);
+                },
+              ),
+              // Giờ thức
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.wb_sunny, color: Colors.orange),
+                title: const Text('Giờ thức'),
+                trailing: Text(wakeTime.format(ctx),
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () async {
+                  final t = await showTimePicker(
+                      context: ctx, initialTime: wakeTime);
+                  if (t != null) setDialogState(() => wakeTime = t);
+                },
+              ),
+              const SizedBox(height: 8),
+              // Chất lượng
+              Row(children: [
+                const Icon(Icons.star, color: Colors.orange, size: 18),
+                const SizedBox(width: 8),
+                const Text('Chất lượng: '),
+                Expanded(
+                  child: Slider(
+                    value: qualityScore.toDouble(),
+                    min: 1, max: 5, divisions: 4,
+                    label: _qualityLabel(qualityScore),
+                    onChanged: (v) =>
+                        setDialogState(() => qualityScore = v.toInt()),
+                  ),
+                ),
+              ]),
+              Text(_qualityLabel(qualityScore),
+                  style: const TextStyle(
+                      color: Color(0xFF0F75F4), fontWeight: FontWeight.bold)),
             ]),
-            Text(_qualityLabel(qualityScore),
-                style: const TextStyle(
-                    color: Color(0xFF0F75F4), fontWeight: FontWeight.bold)),
-          ]),
+          ),
           actions: [
             Builder(builder: (context) {
               bool isSaving = false;
@@ -140,9 +164,8 @@ class _SleepScreenState extends State<SleepScreen> {
                                   listen: false,
                                 ).getUser();
                                 if (user == null) return;
-                                final now = DateTime.now();
                                 final date =
-                                    DateFormat('yyyy-MM-dd').format(now);
+                                    DateFormat('yyyy-MM-dd').format(selectedLogDate);
                                 final startStr =
                                     '${bedTime.hour.toString().padLeft(2, '0')}:${bedTime.minute.toString().padLeft(2, '0')}';
                                 final endStr =

@@ -34,12 +34,11 @@ class LogController {
 
   /// Sync all measurements and moods from the server to local SQLite
   Future<void> refreshLogsFromServer(int userId) async {
-    try {
-      // 1. Sync Body Measurements
-      final mResponse = await _measurementService.getBodyMeasurementsByUser(userId);
-      if (mResponse == null) {
-        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-      }
+    // 1. Sync Body Measurements
+    final mResponse = await _measurementService.getBodyMeasurementsByUser(userId);
+    if (mResponse == null) {
+      throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+    }
       if (mResponse.statusCode == 200) {
         final Map<String, dynamic> responseBody = mResponse.data is Map<String, dynamic>
             ? mResponse.data
@@ -209,10 +208,6 @@ class LogController {
         // Không fail toàn bộ sync nếu nutrition lỗi
         print('Lỗi sync nutrition logs: $e');
       }
-    } catch (e) {
-      print("Lỗi khi tải dữ liệu đồng bộ từ server: $e");
-      rethrow;
-    }
   }
 
   /// Log weight to SQLite and sync to server
@@ -250,62 +245,57 @@ class LogController {
     }
 
     // Server Sync
-    try {
-      final List<Map<String, dynamic>> updatedRows = await db.query(
-        'body_measurements',
-        where: 'measurement_id = ?',
-        whereArgs: [measurementId],
-      );
-      if (updatedRows.isNotEmpty) {
-        final row = updatedRows.first;
+    final List<Map<String, dynamic>> updatedRows = await db.query(
+      'body_measurements',
+      where: 'measurement_id = ?',
+      whereArgs: [measurementId],
+    );
+    if (updatedRows.isNotEmpty) {
+      final row = updatedRows.first;
 
-        if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
-          // UPDATE on server
-          final response = await _measurementService.updateBodyMeasurement(measurementId, {
-            'userId': userId,
-            'date': date,
-            'weight': weight,
-            'bloodPressure': row['blood_pressure'],
-            'heartRate': row['heart_rate'],
-            'bodyFatPercentage': row['body_fat_percentage'],
-            'bloodGlucose': row['blood_glucose'],
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-        } else {
-          // CREATE on server
-          final response = await _measurementService.createBodyMeasurement({
-            'userId': userId,
-            'date': date,
-            'weight': weight,
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
-            final data = body['data'] ?? body;
-            final serverId = data['id'];
-            if (serverId != null) {
-              await db.delete(
-                'body_measurements',
-                where: 'measurement_id = ? AND measurement_id != ?',
-                whereArgs: [serverId, measurementId],
-              );
-              await db.update(
-                'body_measurements',
-                {'measurement_id': serverId},
-                where: 'measurement_id = ?',
-                whereArgs: [measurementId],
-              );
-            }
+      if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
+        // UPDATE on server
+        final response = await _measurementService.updateBodyMeasurement(measurementId, {
+          'userId': userId,
+          'date': date,
+          'weight': weight,
+          'bloodPressure': row['blood_pressure'],
+          'heartRate': row['heart_rate'],
+          'bodyFatPercentage': row['body_fat_percentage'],
+          'bloodGlucose': row['blood_glucose'],
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+      } else {
+        // CREATE on server
+        final response = await _measurementService.createBodyMeasurement({
+          'userId': userId,
+          'date': date,
+          'weight': weight,
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+          final data = body['data'] ?? body;
+          final serverId = data['id'];
+          if (serverId != null) {
+            await db.delete(
+              'body_measurements',
+              where: 'measurement_id = ? AND measurement_id != ?',
+              whereArgs: [serverId, measurementId],
+            );
+            await db.update(
+              'body_measurements',
+              {'measurement_id': serverId},
+              where: 'measurement_id = ?',
+              whereArgs: [measurementId],
+            );
           }
         }
       }
-    } catch (e) {
-      print("Lỗi đồng bộ cân nặng lên server: $e");
-      rethrow;
     }
   }
 
@@ -343,62 +333,57 @@ class LogController {
     }
 
     // Server Sync
-    try {
-      final List<Map<String, dynamic>> updatedRows = await db.query(
-        'body_measurements',
-        where: 'measurement_id = ?',
-        whereArgs: [measurementId],
-      );
-      if (updatedRows.isNotEmpty) {
-        final row = updatedRows.first;
+    final List<Map<String, dynamic>> updatedRows = await db.query(
+      'body_measurements',
+      where: 'measurement_id = ?',
+      whereArgs: [measurementId],
+    );
+    if (updatedRows.isNotEmpty) {
+      final row = updatedRows.first;
 
-        if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
-          // UPDATE on server
-          final response = await _measurementService.updateBodyMeasurement(measurementId, {
-            'userId': userId,
-            'date': date,
-            'weight': row['weight'],
-            'bloodPressure': bloodPressure,
-            'heartRate': row['heart_rate'],
-            'bodyFatPercentage': row['body_fat_percentage'],
-            'bloodGlucose': row['blood_glucose'],
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-        } else {
-          // CREATE on server
-          final response = await _measurementService.createBodyMeasurement({
-            'userId': userId,
-            'date': date,
-            'bloodPressure': bloodPressure,
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
-            final data = body['data'] ?? body;
-            final serverId = data['id'];
-            if (serverId != null) {
-              await db.delete(
-                'body_measurements',
-                where: 'measurement_id = ? AND measurement_id != ?',
-                whereArgs: [serverId, measurementId],
-              );
-              await db.update(
-                'body_measurements',
-                {'measurement_id': serverId},
-                where: 'measurement_id = ?',
-                whereArgs: [measurementId],
-              );
-            }
+      if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
+        // UPDATE on server
+        final response = await _measurementService.updateBodyMeasurement(measurementId, {
+          'userId': userId,
+          'date': date,
+          'weight': row['weight'],
+          'bloodPressure': bloodPressure,
+          'heartRate': row['heart_rate'],
+          'bodyFatPercentage': row['body_fat_percentage'],
+          'bloodGlucose': row['blood_glucose'],
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+      } else {
+        // CREATE on server
+        final response = await _measurementService.createBodyMeasurement({
+          'userId': userId,
+          'date': date,
+          'bloodPressure': bloodPressure,
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+          final data = body['data'] ?? body;
+          final serverId = data['id'];
+          if (serverId != null) {
+            await db.delete(
+              'body_measurements',
+              where: 'measurement_id = ? AND measurement_id != ?',
+              whereArgs: [serverId, measurementId],
+            );
+            await db.update(
+              'body_measurements',
+              {'measurement_id': serverId},
+              where: 'measurement_id = ?',
+              whereArgs: [measurementId],
+            );
           }
         }
       }
-    } catch (e) {
-      print("Lỗi đồng bộ huyết áp lên server: $e");
-      rethrow;
     }
   }
 
@@ -441,54 +426,49 @@ class LogController {
     }
 
     // Server Sync
-    try {
-      if (moodId != null && moodId > 0 && existing.isNotEmpty) {
-        // UPDATE on server (backend endpoint /mood-entries is used to create or update, it acts as upsert or we can just send it)
-        // Wait, backend MoodEntryService doesn't have an update log by id endpoint mapping in Controller?
-        // Wait! Let's check be\flutterbe\controller\v1\MoodEntryController.java.
-        // Actually, creating a new mood log will save it. For simplicity, we send createMoodEntry.
-        final response = await _moodService.createMoodEntry({
-          'userId': userId,
-          'date': date,
-          'moodScore': moodScore,
-          'notes': notes,
-        });
-        if (response == null) {
-          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-        }
-      } else {
-        // CREATE on server
-        final response = await _moodService.createMoodEntry({
-          'userId': userId,
-          'date': date,
-          'moodScore': moodScore,
-          'notes': notes,
-        });
-        if (response == null) {
-          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-        }
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
-          final data = body['data'] ?? body;
-          final serverId = data['id'];
-          if (serverId != null) {
-            await db.delete(
-              'mood_entries',
-              where: 'mood_id = ? AND mood_id != ?',
-              whereArgs: [serverId, moodId],
-            );
-            await db.update(
-              'mood_entries',
-              {'mood_id': serverId},
-              where: 'mood_id = ?',
-              whereArgs: [moodId],
-            );
-          }
+    if (moodId != null && moodId > 0 && existing.isNotEmpty) {
+      // UPDATE on server (backend endpoint /mood-entries is used to create or update, it acts as upsert or we can just send it)
+      // Wait, backend MoodEntryService doesn't have an update log by id endpoint mapping in Controller?
+      // Wait! Let's check be\flutterbe\controller\v1\MoodEntryController.java.
+      // Actually, creating a new mood log will save it. For simplicity, we send createMoodEntry.
+      final response = await _moodService.createMoodEntry({
+        'userId': userId,
+        'date': date,
+        'moodScore': moodScore,
+        'notes': notes,
+      });
+      if (response == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+    } else {
+      // CREATE on server
+      final response = await _moodService.createMoodEntry({
+        'userId': userId,
+        'date': date,
+        'moodScore': moodScore,
+        'notes': notes,
+      });
+      if (response == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+        final data = body['data'] ?? body;
+        final serverId = data['id'];
+        if (serverId != null) {
+          await db.delete(
+            'mood_entries',
+            where: 'mood_id = ? AND mood_id != ?',
+            whereArgs: [serverId, moodId],
+          );
+          await db.update(
+            'mood_entries',
+            {'mood_id': serverId},
+            where: 'mood_id = ?',
+            whereArgs: [moodId],
+          );
         }
       }
-    } catch (e) {
-      print("Lỗi đồng bộ tâm trạng lên server: $e");
-      rethrow;
     }
   }
 
@@ -526,62 +506,57 @@ class LogController {
     }
 
     // Server Sync
-    try {
-      final List<Map<String, dynamic>> updatedRows = await db.query(
-        'body_measurements',
-        where: 'measurement_id = ?',
-        whereArgs: [measurementId],
-      );
-      if (updatedRows.isNotEmpty) {
-        final row = updatedRows.first;
+    final List<Map<String, dynamic>> updatedRows = await db.query(
+      'body_measurements',
+      where: 'measurement_id = ?',
+      whereArgs: [measurementId],
+    );
+    if (updatedRows.isNotEmpty) {
+      final row = updatedRows.first;
 
-        if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
-          // UPDATE on server
-          final response = await _measurementService.updateBodyMeasurement(measurementId, {
-            'userId': userId,
-            'date': date,
-            'weight': row['weight'],
-            'bloodPressure': row['blood_pressure'],
-            'heartRate': row['heart_rate'],
-            'bodyFatPercentage': row['body_fat_percentage'],
-            'bloodGlucose': bloodGlucose,
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-        } else {
-          // CREATE on server
-          final response = await _measurementService.createBodyMeasurement({
-            'userId': userId,
-            'date': date,
-            'bloodGlucose': bloodGlucose,
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
-            final data = body['data'] ?? body;
-            final serverId = data['id'];
-            if (serverId != null) {
-              await db.delete(
-                'body_measurements',
-                where: 'measurement_id = ? AND measurement_id != ?',
-                whereArgs: [serverId, measurementId],
-              );
-              await db.update(
-                'body_measurements',
-                {'measurement_id': serverId},
-                where: 'measurement_id = ?',
-                whereArgs: [measurementId],
-              );
-            }
+      if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
+        // UPDATE on server
+        final response = await _measurementService.updateBodyMeasurement(measurementId, {
+          'userId': userId,
+          'date': date,
+          'weight': row['weight'],
+          'bloodPressure': row['blood_pressure'],
+          'heartRate': row['heart_rate'],
+          'bodyFatPercentage': row['body_fat_percentage'],
+          'bloodGlucose': bloodGlucose,
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+      } else {
+        // CREATE on server
+        final response = await _measurementService.createBodyMeasurement({
+          'userId': userId,
+          'date': date,
+          'bloodGlucose': bloodGlucose,
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+          final data = body['data'] ?? body;
+          final serverId = data['id'];
+          if (serverId != null) {
+            await db.delete(
+              'body_measurements',
+              where: 'measurement_id = ? AND measurement_id != ?',
+              whereArgs: [serverId, measurementId],
+            );
+            await db.update(
+              'body_measurements',
+              {'measurement_id': serverId},
+              where: 'measurement_id = ?',
+              whereArgs: [measurementId],
+            );
           }
         }
       }
-    } catch (e) {
-      print("Lỗi đồng bộ đường huyết lên server: $e");
-      rethrow;
     }
   }
 
@@ -619,62 +594,57 @@ class LogController {
     }
 
     // Server Sync
-    try {
-      final List<Map<String, dynamic>> updatedRows = await db.query(
-        'body_measurements',
-        where: 'measurement_id = ?',
-        whereArgs: [measurementId],
-      );
-      if (updatedRows.isNotEmpty) {
-        final row = updatedRows.first;
+    final List<Map<String, dynamic>> updatedRows = await db.query(
+      'body_measurements',
+      where: 'measurement_id = ?',
+      whereArgs: [measurementId],
+    );
+    if (updatedRows.isNotEmpty) {
+      final row = updatedRows.first;
 
-        if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
-          // UPDATE on server
-          final response = await _measurementService.updateBodyMeasurement(measurementId, {
-            'userId': userId,
-            'date': date,
-            'weight': row['weight'],
-            'bloodPressure': row['blood_pressure'],
-            'heartRate': heartRate,
-            'bodyFatPercentage': row['body_fat_percentage'],
-            'bloodGlucose': row['blood_glucose'],
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-        } else {
-          // CREATE on server
-          final response = await _measurementService.createBodyMeasurement({
-            'userId': userId,
-            'date': date,
-            'heartRate': heartRate,
-          });
-          if (response == null) {
-            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-          }
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
-            final data = body['data'] ?? body;
-            final serverId = data['id'];
-            if (serverId != null) {
-              await db.delete(
-                'body_measurements',
-                where: 'measurement_id = ? AND measurement_id != ?',
-                whereArgs: [serverId, measurementId],
-              );
-              await db.update(
-                'body_measurements',
-                {'measurement_id': serverId},
-                where: 'measurement_id = ?',
-                whereArgs: [measurementId],
-              );
-            }
+      if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
+        // UPDATE on server
+        final response = await _measurementService.updateBodyMeasurement(measurementId, {
+          'userId': userId,
+          'date': date,
+          'weight': row['weight'],
+          'bloodPressure': row['blood_pressure'],
+          'heartRate': heartRate,
+          'bodyFatPercentage': row['body_fat_percentage'],
+          'bloodGlucose': row['blood_glucose'],
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+      } else {
+        // CREATE on server
+        final response = await _measurementService.createBodyMeasurement({
+          'userId': userId,
+          'date': date,
+          'heartRate': heartRate,
+        });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+          final data = body['data'] ?? body;
+          final serverId = data['id'];
+          if (serverId != null) {
+            await db.delete(
+              'body_measurements',
+              where: 'measurement_id = ? AND measurement_id != ?',
+              whereArgs: [serverId, measurementId],
+            );
+            await db.update(
+              'body_measurements',
+              {'measurement_id': serverId},
+              where: 'measurement_id = ?',
+              whereArgs: [measurementId],
+            );
           }
         }
       }
-    } catch (e) {
-      print("Lỗi đồng bộ nhịp tim lên server: $e");
-      rethrow;
     }
   }
 
@@ -686,14 +656,9 @@ class LogController {
       where: 'measurement_id = ?',
       whereArgs: [measurementId],
     );
-    try {
-      final response = await _measurementService.deleteBodyMeasurement(measurementId);
-      if (response == null) {
-        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
-      }
-    } catch (e) {
-      print("Lỗi khi xóa đo lường trên server: $e");
-      rethrow;
+    final response = await _measurementService.deleteBodyMeasurement(measurementId);
+    if (response == null) {
+      throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
     }
   }
 

@@ -43,45 +43,40 @@ class SleepController {
     ));
 
     // Sync to server
-    try {
-      final db = await _db.database;
-      final response = await _sleepService.createSleep({
-        'userId': userId,
-        'date': date,
-        'startTime': startTime,
-        'endTime': endTime,
-        'duration': duration,
-        'qualityScore': qualityScore,
-      });
+    final response = await _sleepService.createSleep({
+      'userId': userId,
+      'date': date,
+      'startTime': startTime,
+      'endTime': endTime,
+      'duration': duration,
+      'qualityScore': qualityScore,
+    });
 
-      if (response == null) {
-        throw DioException(
-            requestOptions: RequestOptions(path: ''),
-            message: 'Không thể kết nối đến máy chủ.');
+    if (response == null) {
+      throw DioException(
+          requestOptions: RequestOptions(path: ''),
+          message: 'Không thể kết nối đến máy chủ.');
+    }
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final db = await _db.database;
+      final Map<String, dynamic> body =
+          response.data is Map<String, dynamic> ? response.data : {};
+      final data = body['data'] ?? body;
+      final serverId = data['id'];
+      if (serverId != null) {
+        // Update SQLite primary key to match backend server ID
+        await db.delete(
+          'sleeps',
+          where: 'sleep_id = ? AND sleep_id != ?',
+          whereArgs: [serverId, localId],
+        );
+        await db.update(
+          'sleeps',
+          {'sleep_id': serverId},
+          where: 'sleep_id = ?',
+          whereArgs: [localId],
+        );
       }
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final Map<String, dynamic> body =
-            response.data is Map<String, dynamic> ? response.data : {};
-        final data = body['data'] ?? body;
-        final serverId = data['id'];
-        if (serverId != null) {
-          // Update SQLite primary key to match backend server ID
-          await db.delete(
-            'sleeps',
-            where: 'sleep_id = ? AND sleep_id != ?',
-            whereArgs: [serverId, localId],
-          );
-          await db.update(
-            'sleeps',
-            {'sleep_id': serverId},
-            where: 'sleep_id = ?',
-            whereArgs: [localId],
-          );
-        }
-      }
-    } catch (e) {
-      print("Lỗi đồng bộ giấc ngủ lên server: $e");
-      rethrow;
     }
 
     return localId;

@@ -6,6 +6,7 @@ import 'package:frontend/data/models/activity.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/widgets/alarm_reminder_card.dart';
+import 'package:frontend/services/token_service.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -43,16 +44,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
       final results = await Future.wait([
         _ctrl.getTodayActivity(uid),
         _ctrl.getRecentActivities(uid, days: 7),
+        tokenService().getTargetSteps(),
       ]);
 
       if (!mounted) return;
 
-      int targetSteps = 10000;
-
       setState(() {
         _todayActivity = results[0] as Activity?;
         _recentActivities = results[1] as List<Activity>;
-        _targetSteps = targetSteps;
+        _targetSteps = results[2] as int;
         _isLoading = false;
       });
     } catch (e) {
@@ -68,20 +68,71 @@ class _ActivityScreenState extends State<ActivityScreen> {
     }
   }
 
+  Future<void> _showTargetStepsDialog() async {
+    final ctrl = TextEditingController(text: _targetSteps.toString());
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Đặt mục tiêu bước chân'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            hintText: 'Ví dụ: 10000',
+            suffixText: 'bước',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F75F4),
+            ),
+            onPressed: () async {
+              final val = int.tryParse(ctrl.text.trim()) ?? 10000;
+              if (val > 0) {
+                await tokenService().saveTargetSteps(val);
+                setState(() {
+                  _targetSteps = val;
+                });
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Lưu', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showLogDialog() async {
-    final stepsCtrl = TextEditingController(
-      text: _todayActivity?.steps.toString() ?? '',
-    );
-    final distanceCtrl = TextEditingController(
-      text: _todayActivity?.distance.toString() ?? '',
-    );
+    DateTime selectedLogDate = DateTime.now();
+    final stepsCtrl = TextEditingController();
+    final distanceCtrl = TextEditingController();
 
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
+    if (user == null) return;
+    final int uid = user.userId!;
+
+    Future<void> loadActivityForDate(DateTime date, Function setDialogState) async {
+      final String dateStr = DateFormat('yyyy-MM-dd').format(date);
+      final existing = await _ctrl.getActivityForDate(uid, dateStr);
+      setDialogState(() {
+        stepsCtrl.text = existing?.steps.toString() ?? '';
+        distanceCtrl.text = existing?.distance.toString() ?? '';
+      });
+    }
+
     double weight = 60.0;
-    if (user != null && user.weight != null && user.weight! > 0) {
+    if (user.weight != null && user.weight! > 0) {
       weight = user.weight!;
     } else {
-      final latest = await DatabaseHelper().getLatestBodyMeasurement(user?.userId ?? 1);
+      final latest = await DatabaseHelper().getLatestBodyMeasurement(uid);
       if (latest != null && latest['weight'] != null) {
         weight = (latest['weight'] as num).toDouble();
       }
@@ -94,66 +145,98 @@ class _ActivityScreenState extends State<ActivityScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
+          if (stepsCtrl.text.isEmpty && distanceCtrl.text.isEmpty && !isSaving) {
+            loadActivityForDate(selectedLogDate, setDialogState);
+          }
+
           final double distanceVal = double.tryParse(distanceCtrl.text) ?? 
               ((int.tryParse(stepsCtrl.text) ?? 0) * 0.00075);
           final int calculatedCalories = (weight * distanceVal * 0.75).round();
 
           return AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text('Ghi nhận vận động hôm nay'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _dialogField(
-                  stepsCtrl,
-                  'Số bước chân',
-                  'bước',
-                  TextInputType.number,
-                  onChanged: (val) {
-                    final steps = int.tryParse(val) ?? 0;
-                    final dist = steps * 0.00075;
-                    setDialogState(() {
-                      distanceCtrl.text = dist > 0 ? dist.toStringAsFixed(2) : '';
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                _dialogField(
-                  distanceCtrl,
-                  'Quãng đường',
-                  'km',
-                  const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (val) {
-                    setDialogState(() {});
-                  },
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F6FB),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFEBECEE)),
+            title: const Text('Ghi nhận vận động'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_today, color: Color(0xFF0F75F4)),
+                    title: const Text('Ngày ghi nhận'),
+                    trailing: Text(
+                      DateFormat('dd/MM/yyyy').format(selectedLogDate),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onTap: () async {
+                      final DateTime? picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedLogDate,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setDialogState(() {
+                          selectedLogDate = picked;
+                          stepsCtrl.clear();
+                          distanceCtrl.clear();
+                        });
+                        await loadActivityForDate(picked, setDialogState);
+                      }
+                    },
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Calo tiêu hao tự động:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF495057)),
-                      ),
-                      Text(
-                        '$calculatedCalories kcal',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                          color: Color(0xFF0F75F4),
+                  const SizedBox(height: 12),
+                  _dialogField(
+                    stepsCtrl,
+                    'Số bước chân',
+                    'bước',
+                    TextInputType.number,
+                    onChanged: (val) {
+                      final steps = int.tryParse(val) ?? 0;
+                      final dist = steps * 0.00075;
+                      setDialogState(() {
+                        distanceCtrl.text = dist > 0 ? dist.toStringAsFixed(2) : '';
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _dialogField(
+                    distanceCtrl,
+                    'Quãng đường',
+                    'km',
+                    const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (val) {
+                      setDialogState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4F6FB),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEBECEE)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Calo tiêu hao tự động:',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF495057)),
                         ),
-                      ),
-                    ],
+                        Text(
+                          '$calculatedCalories kcal',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            color: Color(0xFF0F75F4),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -167,12 +250,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 onPressed: isSaving
                     ? null
                     : () async {
-                        final user = Provider.of<UserProvider>(
-                          context,
-                          listen: false,
-                        ).getUser();
-                        if (user == null) return;
-
                         final int steps = int.tryParse(stepsCtrl.text) ?? 0;
                         double distance = double.tryParse(distanceCtrl.text) ?? 0.0;
                         if (distance == 0 && steps > 0) {
@@ -183,11 +260,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
                         setDialogState(() => isSaving = true);
                         try {
+                          final String dateStr = DateFormat('yyyy-MM-dd').format(selectedLogDate);
                           await _ctrl.upsertTodayActivity(
-                            userId: user.userId!,
+                            userId: uid,
                             steps: steps,
                             distance: distance,
                             caloriesBurned: calories,
+                            date: dateStr,
                           );
                           if (ctx.mounted) Navigator.pop(ctx);
                           _load();
@@ -236,13 +315,20 @@ class _ActivityScreenState extends State<ActivityScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_road),
+            tooltip: 'Đặt mục tiêu bước chân',
+            onPressed: _showTargetStepsDialog,
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showLogDialog,
         backgroundColor: const Color(0xFF0F75F4),
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text(
-          'Ghi hôm nay',
+          'Ghi vận động',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),

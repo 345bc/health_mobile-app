@@ -65,4 +65,16 @@ class tokenService {
     await prefs.remove(_EXPIRY_KEY);
     print('🗑️ All tokens cleared');
   }
+
+  // Lưu mục tiêu bước chân
+  Future<void> saveTargetSteps(int steps) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('target_steps', steps);
+  }
+
+  // Lấy mục tiêu bước chân (mặc định 10000)
+  Future<int> getTargetSteps() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('target_steps') ?? 10000;
+  }
 }

@@ -9,10 +9,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('vi', null);
   await NotificationService().init();
-  FlutterError.onError = (details) {
-    debugPrint('FlutterError: ${details.exception}');
-    debugPrint('Stack: ${details.stack}');
-  };
   runApp(const MyApp());
 }
 

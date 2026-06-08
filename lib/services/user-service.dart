@@ -48,7 +48,7 @@ class UserService {
 
       rethrow; // ✅ RE-THROW để SigninScreen bắt được lỗi và kích hoạt chế độ ngoại tuyến
     } catch (e) {
-      print("❌ Login error (lỗi hệ thống): $e");
+      debugPrint("❌ Login error (lỗi hệ thống): $e");
       rethrow;
     }
   }
@@ -61,7 +61,7 @@ class UserService {
       );
       return response;
     } on DioException catch (e) {
-      print("Lỗi đăng ký: ${e.message}");
+      debugPrint("Lỗi đăng ký: ${e.message}");
       rethrow;
     }
   }
@@ -89,11 +89,11 @@ class UserService {
       );
       return response;
     } on DioException catch (e) {
-      print("Không thể lấy end-user profile: ${e.message}");
-      rethrow;
+      debugPrint("Không thể lấy end-user profile: ${e.message}");
+      return e.response;
     } catch (e) {
-      print("Không thể lấy end-user profile (lỗi hệ thống): $e");
-      rethrow;
+      debugPrint("Không thể lấy end-user profile (lỗi hệ thống): $e");
+      return null;
     }
   }
 
@@ -112,10 +112,10 @@ class UserService {
       );
       return response;
     } on DioException catch (e) {
-      print("Không thể cập nhật end-user profile: ${e.message}");
+      debugPrint("Không thể cập nhật end-user profile: ${e.message}");
       return e.response;
     } catch (e) {
-      print("Không thể cập nhật end-user profile (lỗi hệ thống): $e");
+      debugPrint("Không thể cập nhật end-user profile (lỗi hệ thống): $e");
       return null;
     }
   }
@@ -135,10 +135,10 @@ class UserService {
       );
       return response;
     } on DioException catch (e) {
-      print("Không thể cập nhật tài khoản: ${e.message}");
+      debugPrint("Không thể cập nhật tài khoản: ${e.message}");
       return e.response;
     } catch (e) {
-      print("Không thể cập nhật tài khoản (lỗi hệ thống): $e");
+      debugPrint("Không thể cập nhật tài khoản (lỗi hệ thống): $e");
       return null;
     }
   }

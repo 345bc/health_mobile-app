@@ -14,6 +14,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
+  final Set<int> _visitedTabs = {0};
+
   final List<Widget> _pages = const [
     HomeScreen(),
     LogScreen(),
@@ -26,7 +28,11 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: List.generate(_pages.length, (index) {
+          // ✅ Tab chưa từng mở → render SizedBox rỗng, không chạy initState
+          if (!_visitedTabs.contains(index)) return const SizedBox.shrink();
+          return _pages[index];
+        }),
       ),
       bottomNavigationBar: _buildBottomBar(),
     );
@@ -36,7 +42,10 @@ class _MainScreenState extends State<MainScreen> {
     return NavigationBar(
       selectedIndex: _currentIndex,
       onDestinationSelected: (int index) {
-        setState(() => _currentIndex = index);
+        setState(() {
+          _currentIndex = index;
+          _visitedTabs.add(index); // ✅ Đánh dấu tab đã mở → lần sau giữ state
+        });
       },
       labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
       backgroundColor: const Color(0xFFF0F6FF),

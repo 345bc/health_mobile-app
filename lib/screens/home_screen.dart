@@ -13,6 +13,7 @@ import 'package:frontend/screens/nutrition_screen.dart';
 import 'package:frontend/screens/vitals_screen.dart';
 import 'package:frontend/screens/water_screen.dart';
 import 'package:frontend/screens/analytics_screen.dart';
+import 'package:frontend/services/token_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -64,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _db.getLatestHeartRate(userId),
         _db.getLatestBodyMeasurement(userId),
         _db.getTodayTotalWater(userId),
+        tokenService().getTargetSteps(),
       ]);
       if (!mounted) return;
 
@@ -72,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final int? heartRate = results[2] as int?;
       // final BodyMeasurement? body = results[3] as BodyMeasurement?;
       final int todayWater = (results[4] as int?) ?? 0;
+      final int targetSteps = results[5] as int;
 
       setState(() {
         _steps = activity?.steps ?? 0;
@@ -79,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _heartRate = heartRate;
         _sleepText = sleep?.durationFormatted ?? '--';
         _todayWater = todayWater;
-        // _targetSteps    = user.targetSteps ?? 10000;
+        _targetSteps = targetSteps;
         _isLoading = false;
       });
     } catch (e) {

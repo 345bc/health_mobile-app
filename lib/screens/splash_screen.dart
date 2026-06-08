@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:frontend/data/models/user.dart';
+import 'package:frontend/data/models/end_user.dart';
+import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
@@ -72,8 +75,33 @@ class _SplashScreenState extends State<SplashScreen>
       if (isLoggedIn) {
         final userMap = await _userService.getCurrentUser();
         if (userMap != null && mounted) {
-          final user = User.fromJson(userMap);
+          User user = User.fromJson(userMap);
           Provider.of<UserProvider>(context, listen: false).setUser(user);
+
+          // Đồng bộ thông tin EndUser (chiều cao, cân nặng, giới tính...) từ server xuống SQLite & Provider
+          try {
+            final profileResponse = await _userService.getEndUserProfile(user.userId!);
+            if (profileResponse != null && profileResponse.statusCode == 200) {
+              final Map<String, dynamic> responseData = profileResponse.data is String
+                  ? jsonDecode(profileResponse.data)
+                  : profileResponse.data as Map<String, dynamic>;
+
+              final dynamic data = responseData['data'] ?? responseData;
+              if (data is Map<String, dynamic>) {
+                final updatedUser = user.copyWith(
+                  endUser: EndUser.fromMap(data),
+                );
+                // Cập nhật SQLite
+                await UserController().updateUser(updatedUser);
+                // Cập nhật Provider
+                if (mounted) {
+                  Provider.of<UserProvider>(context, listen: false).setUser(updatedUser);
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint("Lỗi đồng bộ hồ sơ khi khởi động: $e");
+          }
         }
       }
 

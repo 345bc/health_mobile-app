@@ -20,10 +20,10 @@ class _LogScreenState extends State<LogScreen> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final LogController _logController = LogController();
 
-  String _weightText = 'Chưa ghi';
-  String _bloodPressureText = 'Chưa ghi';
-  String _mealsText = 'ĐÃ GHI 0 BỮA';
-  String _moodText = 'Chưa ghi';
+  String _weightText = '--';
+  String _bloodPressureText = '--';
+  String _mealsText = '--';
+  String _moodText = '--';
 
   int _streakCount = 0;
   List<double> _weeklyCompletionRates = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];

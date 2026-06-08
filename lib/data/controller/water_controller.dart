@@ -59,18 +59,12 @@ class WaterController {
 
   Future<void> refreshWaterLogsFromServer(int userId) async {
     // Bước 1: Gọi API — chỉ catch lỗi network/timeout ở đây
-    late Response response;
-    try {
-      final result = await _waterService.getWaterLogsByUser(userId);
-      if (result == null) {
-        throw DioException(
-          requestOptions: RequestOptions(path: ''),
-          message: 'Không thể kết nối đến máy chủ.',
-        );
-      }
-      response = result;
-    } on DioException {
-      rethrow;
+    final response = await _waterService.getWaterLogsByUser(userId);
+    if (response == null) {
+      throw DioException(
+        requestOptions: RequestOptions(path: ''),
+        message: 'Không thể kết nối đến máy chủ.',
+      );
     }
 
     try {
@@ -124,47 +118,42 @@ class WaterController {
     });
 
     // 2. Đồng bộ lên server
-    try {
-      final response = await _waterService.createWaterLog({
-        'userId': userId,
-        'date': date,
-        'amount': amount,
-      });
+    final response = await _waterService.createWaterLog({
+      'userId': userId,
+      'date': date,
+      'amount': amount,
+    });
 
-      if (response == null) {
-        throw DioException(
-          requestOptions: RequestOptions(path: ''),
-          message: 'Không thể kết nối đến máy chủ.',
+    if (response == null) {
+      throw DioException(
+        requestOptions: RequestOptions(path: ''),
+        message: 'Không thể kết nối đến máy chủ.',
+      );
+    }
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final Map<String, dynamic> responseBody =
+          response.data is Map<String, dynamic> ? response.data : {};
+      final dynamic data =
+          responseBody['data'] ?? responseBody['result'] ?? responseBody;
+      final int? serverId = data['id'];
+
+      if (serverId != null) {
+        // Xóa bản ghi local cũ để tránh trùng lặp
+        await db.delete(
+          'water_logs',
+          where: 'water_log_id = ?',
+          whereArgs: [localId],
         );
+        // Chèn bản ghi mới với ID của Server
+        await db.insert('water_logs', {
+          'water_log_id': serverId,
+          'user_id': userId,
+          'date': date,
+          'amount': amount,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        return serverId;
       }
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final Map<String, dynamic> responseBody =
-            response.data is Map<String, dynamic> ? response.data : {};
-        final dynamic data =
-            responseBody['data'] ?? responseBody['result'] ?? responseBody;
-        final int? serverId = data['id'];
-
-        if (serverId != null) {
-          // Xóa bản ghi local cũ để tránh trùng lặp
-          await db.delete(
-            'water_logs',
-            where: 'water_log_id = ?',
-            whereArgs: [localId],
-          );
-          // Chèn bản ghi mới với ID của Server
-          await db.insert('water_logs', {
-            'water_log_id': serverId,
-            'user_id': userId,
-            'date': date,
-            'amount': amount,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-          return serverId;
-        }
-      }
-    } catch (e) {
-      print("Lỗi đồng bộ nước uống lên server: $e. Sẽ lưu tạm thời ở local.");
-      rethrow;
     }
     return localId;
   }
@@ -178,17 +167,12 @@ class WaterController {
       whereArgs: [waterLogId],
     );
 
-    try {
-      final response = await _waterService.deleteWaterLog(waterLogId);
-      if (response == null) {
-        throw DioException(
-          requestOptions: RequestOptions(path: ''),
-          message: 'Không thể kết nối đến máy chủ.',
-        );
-      }
-    } catch (e) {
-      print("Lỗi khi xóa nhật ký nước uống trên server: $e");
-      rethrow;
+    final response = await _waterService.deleteWaterLog(waterLogId);
+    if (response == null) {
+      throw DioException(
+        requestOptions: RequestOptions(path: ''),
+        message: 'Không thể kết nối đến máy chủ.',
+      );
     }
   }
 
@@ -210,36 +194,29 @@ class WaterController {
     final String title = config['title'] as String;
     final String body = config['body'] as String;
 
-    try {
-      if (isEnabled) {
-        final parts = time.split(':');
-        if (parts.length == 2) {
-          final int hour = int.tryParse(parts[0]) ?? 8;
-          final int minute = int.tryParse(parts[1]) ?? 0;
+    if (isEnabled) {
+      final parts = time.split(':');
+      if (parts.length == 2) {
+        final int hour = int.tryParse(parts[0]) ?? 8;
+        final int minute = int.tryParse(parts[1]) ?? 0;
 
-          await _notificationService.scheduleDailyNotification(
-            id: notificationId,
-            title: title,
-            body: body,
-            hour: hour,
-            minute: minute,
-          );
+        await _notificationService.scheduleDailyNotification(
+          id: notificationId,
+          title: title,
+          body: body,
+          hour: hour,
+          minute: minute,
+        );
 
-          // Hiển thị thông báo ngay lập tức để xác nhận kích hoạt
-          await _notificationService.showNotification(
-            id: notificationId + 1000,
-            title: '🔔 Đã kích hoạt nhắc nhở thành công',
-            body: 'Hệ thống sẽ thông báo nhắc nhở $time hàng ngày!',
-          );
-        }
-      } else {
-        await _notificationService.cancelNotification(notificationId);
+        // Hiển thị thông báo ngay lập tức để xác nhận kích hoạt
+        await _notificationService.showNotification(
+          id: notificationId + 1000,
+          title: '🔔 Đã kích hoạt nhắc nhở thành công',
+          body: 'Hệ thống sẽ thông báo nhắc nhở $time hàng ngày!',
+        );
       }
-    } catch (e) {
-      // Lỗi thông báo không làm gián đoạn luồng lưu cài đặt
-      print('[WaterController] saveReminderSetting - lỗi notification: $e');
-      // Rethrow để UI có thể hiển thị SnackBar lỗi nếu cần
-      rethrow;
+    } else {
+      await _notificationService.cancelNotification(notificationId);
     }
   }
 }

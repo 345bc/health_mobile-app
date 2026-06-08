@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/data/models/user.dart';
+import 'package:frontend/data/models/end_user.dart';
 import 'package:frontend/screens/sign-up_screen.dart';
 import 'package:frontend/screens/main_screen.dart';
 import 'package:frontend/services/user-service.dart';
@@ -70,39 +72,51 @@ class _SigninScreenState extends State<SigninScreen> {
 
         if (!mounted) return;
 
-        if (existingUser != null) {
-          if (existingUser.userId != serverId) {
-            try {
-              // Xóa ID cũ không khớp và chèn lại với ID đồng bộ từ Server
+        // Đồng bộ thêm thông tin EndUser (chiều cao, cân nặng, giới tính, nhóm máu...) từ server về SQLite & Provider
+        User finalUser = existingUser != null 
+            ? existingUser.copyWith(userId: serverId)
+            : User(
+                userId: serverId,
+                email: email,
+                passwordHash: password,
+                user_name: userData['name'],
+              );
+
+        try {
+          final profileResponse = await userService.getEndUserProfile(serverId);
+          if (profileResponse != null && profileResponse.statusCode == 200) {
+            final Map<String, dynamic> responseData = profileResponse.data is String
+                ? jsonDecode(profileResponse.data)
+                : profileResponse.data as Map<String, dynamic>;
+
+            final dynamic profileData = responseData['data'] ?? responseData;
+            if (profileData is Map<String, dynamic>) {
+              final endUserObj = EndUser.fromMap(profileData);
+              finalUser = finalUser.copyWith(endUser: endUserObj);
+            }
+          }
+        } catch (profileError) {
+          debugPrint("Lỗi đồng bộ hồ sơ chi tiết khi đăng nhập: $profileError");
+        }
+
+        // Lưu/Cập nhật thông tin hoàn chỉnh (gồm cả EndUser nếu có) vào SQLite
+        try {
+          if (existingUser != null) {
+            if (existingUser.userId != serverId) {
               await _userController.deleteUser(existingUser.userId!);
-              final User updatedIdUser = existingUser.copyWith(userId: serverId);
-              await _userController.insertUser(updatedIdUser);
-              if (!mounted) return;
-              Provider.of<UserProvider>(context, listen: false).setUser(updatedIdUser);
-            } catch (dbError) {
-              debugPrint("Lỗi cập nhật ID user SQLite: $dbError");
-              if (!mounted) return;
-              Provider.of<UserProvider>(context, listen: false).setUser(existingUser);
+              await _userController.insertUser(finalUser);
+            } else {
+              await _userController.updateUser(finalUser);
             }
           } else {
-            Provider.of<UserProvider>(context, listen: false).setUser(existingUser);
+            await _userController.insertUser(finalUser);
           }
-        } else {
-          final User newUser = User(
-            userId: serverId,
-            email: email,
-            passwordHash: password,
-            user_name: userData['name'],
-          );
-          try {
-            await _userController.insertUser(newUser);
-          } catch (dbError) {
-            debugPrint("Lỗi thêm user SQLite mới: $dbError");
-          }
-
-          if (!mounted) return;
-          Provider.of<UserProvider>(context, listen: false).setUser(newUser);
+        } catch (dbError) {
+          debugPrint("Lỗi lưu user đầy đủ vào SQLite: $dbError");
         }
+
+        if (!mounted) return;
+        Provider.of<UserProvider>(context, listen: false).setUser(finalUser);
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
