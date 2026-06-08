@@ -11,8 +11,8 @@ class ApiService {
   ApiService() {
     _dio.options = BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
+      connectTimeout: const Duration(seconds: 3),
+      receiveTimeout: const Duration(seconds: 3),
       contentType: Headers.jsonContentType,
       responseType: ResponseType.json,
     );
@@ -20,17 +20,17 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          print("🚀 Gửi Request: [${options.method}] -> ${options.uri}");
+          print("Request: [${options.method}] -> ${options.uri}");
           return handler.next(options);
         },
         onResponse: (response, handler) {
           print(
-            "✅ Nhận Response: [${response.statusCode}] <- ${response.requestOptions.path}",
+            "Response: [${response.statusCode}] <- ${response.requestOptions.path}",
           );
           return handler.next(response);
         },
         onError: (DioException e, handler) {
-          print("❌ Lỗi API: [${e.response?.statusCode}] -> ${e.message}");
+          print("error: [${e.response?.statusCode}] -> ${e.message}");
           return handler.next(e);
         },
       ),

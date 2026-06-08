@@ -4,6 +4,7 @@ import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/controller/sleep_controller.dart';
 import 'package:frontend/data/models/sleep_log.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/widgets/alarm_reminder_card.dart';
 
 class SleepScreen extends StatefulWidget {
   const SleepScreen({super.key});
@@ -22,7 +23,9 @@ class _SleepScreenState extends State<SleepScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _load();
+    });
   }
 
   Future<void> _load() async {
@@ -31,17 +34,28 @@ class _SleepScreenState extends State<SleepScreen> {
     if (user == null) { setState(() => _isLoading = false); return; }
     final int uid = user.userId!;
 
-    final results = await Future.wait([
-      _ctrl.getLastSleep(uid),
-      _ctrl.getRecentSleeps(uid, days: 7),
-    ]);
+    try {
+      final results = await Future.wait([
+        _ctrl.getLastSleep(uid),
+        _ctrl.getRecentSleeps(uid, days: 7),
+      ]);
 
-    if (!mounted) return;
-    setState(() {
-      _lastSleep = results[0] as SleepLog?;
-      _recentSleeps = results[1] as List<SleepLog>;
-      _isLoading = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        _lastSleep = results[0] as SleepLog?;
+        _recentSleeps = results[1] as List<SleepLog>;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Error loading sleep data: $e");
+      if (mounted) {
+        setState(() {
+          _lastSleep = null;
+          _recentSleeps = [];
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _showLogDialog() async {
@@ -103,35 +117,80 @@ class _SleepScreenState extends State<SleepScreen> {
                     color: Color(0xFF0F75F4), fontWeight: FontWeight.bold)),
           ]),
           actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Hủy')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F75F4)),
-              onPressed: () async {
-                final user =
-                    Provider.of<UserProvider>(context, listen: false).getUser();
-                if (user == null) return;
-                final now = DateTime.now();
-                final date = DateFormat('yyyy-MM-dd').format(now);
-                final startStr =
-                    '${bedTime.hour.toString().padLeft(2, '0')}:${bedTime.minute.toString().padLeft(2, '0')}';
-                final endStr =
-                    '${wakeTime.hour.toString().padLeft(2, '0')}:${wakeTime.minute.toString().padLeft(2, '0')}';
-                await _ctrl.logSleep(
-                  userId: user.userId!,
-                  date: date,
-                  startTime: startStr,
-                  endTime: endStr,
-                  qualityScore: qualityScore,
-                );
-                if (ctx.mounted) Navigator.pop(ctx);
-                _load();
-              },
-              child: const Text('Lưu',
-                  style: TextStyle(color: Colors.white)),
-            ),
+            Builder(builder: (context) {
+              bool isSaving = false;
+              return StatefulBuilder(
+                builder: (ctx, setDialogState) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                        child: const Text('Hủy'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F75F4),
+                        ),
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                final user = Provider.of<UserProvider>(
+                                  context,
+                                  listen: false,
+                                ).getUser();
+                                if (user == null) return;
+                                final now = DateTime.now();
+                                final date =
+                                    DateFormat('yyyy-MM-dd').format(now);
+                                final startStr =
+                                    '${bedTime.hour.toString().padLeft(2, '0')}:${bedTime.minute.toString().padLeft(2, '0')}';
+                                final endStr =
+                                    '${wakeTime.hour.toString().padLeft(2, '0')}:${wakeTime.minute.toString().padLeft(2, '0')}';
+
+                                setDialogState(() => isSaving = true);
+                                try {
+                                  await _ctrl.logSleep(
+                                    userId: user.userId!,
+                                    date: date,
+                                    startTime: startStr,
+                                    endTime: endStr,
+                                    qualityScore: qualityScore,
+                                  );
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  _load();
+                                } catch (e) {
+                                  setDialogState(() => isSaving = false);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            'Lỗi kết nối tới máy chủ. Giấc ngủ đã được lưu ngoại tuyến.'),
+                                        backgroundColor: Colors.amber[800],
+                                      ),
+                                    );
+                                  }
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  _load();
+                                }
+                              },
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Lưu',
+                                style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  );
+                },
+              );
+            }),
           ],
         ),
       ),
@@ -188,6 +247,16 @@ class _SleepScreenState extends State<SleepScreen> {
                     _emptyState()
                   else
                     ..._recentSleeps.map(_buildSleepItem),
+                  const SizedBox(height: 24),
+                  Builder(
+                    builder: (context) {
+                      final user = Provider.of<UserProvider>(context, listen: false).getUser();
+                      if (user != null && user.userId != null) {
+                        return AlarmReminderCard(userId: user.userId!, type: 'sleep');
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
                   const SizedBox(height: 80),
                 ],
               ),

@@ -11,7 +11,6 @@ import 'package:frontend/data/controller/user_controller.dart';
 import 'package:frontend/screens/sign-in_screen.dart';
 import 'package:frontend/screens/editprofile_screen.dart';
 import 'package:frontend/screens/account_screen.dart';
-import 'package:frontend/screens/goal_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -22,22 +21,29 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final UserService _userService = UserService(ApiService());
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchProfileFromServer();
+      _fetchProfile();
     });
   }
 
-  Future<void> _fetchProfileFromServer() async {
-    try {
-      final userProvider = Provider.of<UserProvider>(context, listen: false);
-      final User? currentUser = userProvider.getUser();
-      if (currentUser == null || currentUser.userId == null) return;
+  Future<void> _fetchProfile() async {
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final User? currentUser = userProvider.getUser();
+    if (currentUser == null || currentUser.userId == null) return;
 
-      final response = await _userService.getEndUserProfile(currentUser.userId!);
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final response = await _userService.getEndUserProfile(
+        currentUser.userId!,
+      );
       if (response != null && response.statusCode == 200) {
         final Map<String, dynamic> responseData = response.data is String
             ? jsonDecode(response.data)
@@ -59,6 +65,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       print("Lỗi khi tải thông tin từ server: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Không thể kết nối với máy chủ để tải thông tin hồ sơ mới nhất."),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -69,23 +90,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            ProfileHeader(user: user),
-            const SizedBox(height: 24),
-            PersonalInfoCard(user: user),
-            const SizedBox(height: 32),
-            const AppSettingsSection(),
-            const SizedBox(height: 32),
-            _buildLogoutButton(context),
-            const SizedBox(height: 100),
-          ],
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
+          : SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 40),
+                  ProfileHeader(user: user),
+                  const SizedBox(height: 24),
+                  PersonalInfoCard(user: user),
+                  const SizedBox(height: 32),
+                  const AppSettingsSection(),
+                  const SizedBox(height: 32),
+                  _buildLogoutButton(context),
+                  const SizedBox(height: 100),
+                ],
+              ),
+            ),
     );
   }
 
@@ -198,13 +221,13 @@ class ProfileHeader extends StatelessWidget {
         displayAge = user!.dateOfBirth!;
       }
     } else {
-      displayAge = '26 tuổi';
+      displayAge = '';
     }
 
     final String displayBlood =
         user?.bloodType != null && user!.bloodType!.isNotEmpty
         ? 'Nhóm máu ${user!.bloodType}'
-        : 'Nhóm máu O+';
+        : '';
 
     return Column(
       children: [
@@ -398,27 +421,6 @@ class AppSettingsSection extends StatelessWidget {
                     height: 1,
                     color: Color(0xFFEBECEE),
                     indent: 56,
-                  ),
-                  _buildSettingItem(
-                    icon: Icons.track_changes_rounded,
-                    title: 'Mục tiêu sức khỏe',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const GoalScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  const Divider(
-                    height: 1,
-                    color: Color(0xFFEBECEE),
-                    indent: 56,
-                  ),
-                  _buildSettingItem(
-                    icon: Icons.watch,
-                    title: 'Kết nối thiết bị',
                   ),
                   const Divider(
                     height: 1,

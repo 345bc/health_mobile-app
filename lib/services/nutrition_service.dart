@@ -68,6 +68,25 @@ class NutritionService {
     }
   }
 
+  /// Lấy tất cả nhật ký bữa ăn của người dùng (không lọc theo ngày)
+  Future<Response?> getAllNutritionLogsByUser(int userId) async {
+    try {
+      final token = await _tokenService.getToken();
+      final response = await _apiClient.dio.get(
+        '/nutrition-logs/user/$userId',
+        options: Options(
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      return response;
+    } on DioException catch (e) {
+      print("Lỗi khi tải toàn bộ nhật ký dinh dưỡng từ server: ${e.message}");
+      return e.response;
+    }
+  }
+
   /// Lấy danh sách nhật ký bữa ăn của người dùng theo ngày
   Future<Response?> getNutritionLogs(int userId, String date) async {
     try {

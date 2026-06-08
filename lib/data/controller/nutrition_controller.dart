@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/data/models/meal.dart';
 import 'package:frontend/services/nutrition_service.dart';
@@ -5,8 +6,14 @@ import 'package:frontend/services/api_service.dart';
 import 'package:sqflite/sqflite.dart';
 
 class NutritionController {
-  final DatabaseHelper _dbHelper = DatabaseHelper();
-  final NutritionService _nutritionService = NutritionService(ApiService());
+  final DatabaseHelper _dbHelper;
+  final NutritionService _nutritionService;
+
+  NutritionController({
+    DatabaseHelper? dbHelper,
+    NutritionService? nutritionService,
+  })  : _dbHelper = dbHelper ?? DatabaseHelper(),
+        _nutritionService = nutritionService ?? NutritionService(ApiService());
 
   /// Log a meal locally and attempt to sync to the server
   Future<void> addMeal({
@@ -49,7 +56,11 @@ class NutritionController {
         'fat': fat,
       });
 
-      if (foodResponse != null && (foodResponse.statusCode == 200 || foodResponse.statusCode == 201)) {
+      if (foodResponse == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+
+      if (foodResponse.statusCode == 200 || foodResponse.statusCode == 201) {
         final Map<String, dynamic> responseBody = foodResponse.data is Map<String, dynamic> 
             ? foodResponse.data 
             : {};
@@ -66,7 +77,11 @@ class NutritionController {
             'quantity': 1.0,
           });
 
-          if (logResponse != null && (logResponse.statusCode == 200 || logResponse.statusCode == 201)) {
+          if (logResponse == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
+
+          if (logResponse.statusCode == 200 || logResponse.statusCode == 201) {
             final Map<String, dynamic> logResponseBody = logResponse.data is Map<String, dynamic>
                 ? logResponse.data
                 : {};
@@ -87,6 +102,7 @@ class NutritionController {
       }
     } catch (e) {
       print("Không thể đồng bộ lên server (lưu cục bộ offline): $e");
+      rethrow;
     }
   }
 
@@ -95,7 +111,10 @@ class NutritionController {
     // 1. Try to fetch from server first
     try {
       final response = await _nutritionService.getNutritionLogs(userId, date);
-      if (response != null && response.statusCode == 200) {
+      if (response == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (response.statusCode == 200) {
         final Map<String, dynamic> responseBody = response.data is Map<String, dynamic>
             ? response.data
             : {};
@@ -140,6 +159,7 @@ class NutritionController {
       }
     } catch (e) {
       print("Không thể tải từ server, sử dụng dữ liệu cục bộ: $e");
+      rethrow;
     }
 
     // 2. Load from local database (acts as offline-first fallback or cache)
@@ -153,9 +173,13 @@ class NutritionController {
 
     // 2. Delete from server
     try {
-      await _nutritionService.deleteNutritionLog(logId);
+      final response = await _nutritionService.deleteNutritionLog(logId);
+      if (response == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
     } catch (e) {
       print("Lỗi khi đồng bộ xóa lên server: $e");
+      rethrow;
     }
   }
 }

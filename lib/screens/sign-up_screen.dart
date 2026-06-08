@@ -111,11 +111,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
       final response = await userService.signup(email, password, name);
 
       if (response.statusCode == 201 || response.statusCode == 200) {
+        final int? serverId = response.data['data']?['id'];
+        
         // Đăng ký thành công trên backend -> lưu vào SQLite nội bộ để hỗ trợ offline
         final User? existingUser = await _userController.getUserByEmail(email);
         if (existingUser == null) {
           await _userController.insertUser(
-            User(email: email, passwordHash: password, user_name: name),
+            User(userId: serverId, email: email, passwordHash: password, user_name: name),
           );
         }
 

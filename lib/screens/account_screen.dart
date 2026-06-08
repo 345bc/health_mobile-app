@@ -124,12 +124,30 @@ class _AccountScreenState extends State<AccountScreen> {
               title: "Cập nhật tài khoản",
               body: "Thông tin tài khoản đăng nhập đã được thay đổi thành công.",
             );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Cập nhật thông tin tài khoản thành công! 🎉"),
+                  backgroundColor: Colors.green,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           } else {
             NotificationService().showNotification(
               id: 11,
               title: "Lưu tạm thời (Offline)",
               body: "Đã lưu tài khoản cục bộ. Không thể kết nối tới máy chủ.",
             );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Lưu tài khoản ngoại tuyến thành công. Không thể kết nối với máy chủ."),
+                  backgroundColor: Colors.blueGrey,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           }
 
           if (!mounted) return;
@@ -143,6 +161,15 @@ class _AccountScreenState extends State<AccountScreen> {
             title: "Cập nhật thất bại",
             body: errorMessage,
           );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Lỗi: $errorMessage"),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
       }
     }

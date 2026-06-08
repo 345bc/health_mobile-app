@@ -1,11 +1,18 @@
+import 'package:dio/dio.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/data/models/activity.dart';
 import 'package:frontend/services/activity_service.dart';
 import 'package:frontend/services/api_service.dart';
 
 class ActivityController {
-  final DatabaseHelper _db = DatabaseHelper();
-  final ActivityService _activityService = ActivityService(ApiService());
+  final DatabaseHelper _db;
+  final ActivityService _activityService;
+
+  ActivityController({
+    DatabaseHelper? db,
+    ActivityService? activityService,
+  })  : _db = db ?? DatabaseHelper(),
+        _activityService = activityService ?? ActivityService(ApiService());
 
   Future<Activity?> getTodayActivity(int userId) =>
       _db.getTodayActivity(userId);
@@ -39,7 +46,7 @@ class ActivityController {
       final db = await _db.database;
       if (existing != null && existing.activityId != null && existing.activityId! > 0) {
         // We try to update on the server
-        await _activityService.updateActivity(existing.activityId!, {
+        final response = await _activityService.updateActivity(existing.activityId!, {
           'userId': userId,
           'date': today,
           'steps': steps,
@@ -47,6 +54,9 @@ class ActivityController {
           'caloriesBurned': caloriesBurned,
           'source': 'manual'
         });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
       } else {
         // Create on the server
         final response = await _activityService.createActivity({
@@ -58,7 +68,10 @@ class ActivityController {
           'source': 'manual'
         });
         
-        if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
           final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
           final data = body['data'] ?? body;
           final serverId = data['id'];
@@ -80,6 +93,7 @@ class ActivityController {
       }
     } catch (e) {
       print("Lỗi đồng bộ hoạt động lên server: $e");
+      rethrow;
     }
 
     return localId;

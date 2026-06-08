@@ -6,6 +6,7 @@ import 'package:frontend/data/models/meal.dart';
 import 'package:frontend/data/controller/nutrition_controller.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/data/database_helper.dart';
+import 'package:frontend/widgets/alarm_reminder_card.dart';
 
 class NutritionScreen extends StatefulWidget {
   const NutritionScreen({super.key});
@@ -29,7 +30,9 @@ class _NutritionScreenState extends State<NutritionScreen> {
   @override
   void initState() {
     super.initState();
-    _loadMeals();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMeals();
+    });
   }
 
   Future<void> _loadMeals() async {
@@ -42,32 +45,38 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
     final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-    // Load active goal from SQLite and set targets
+    // Load dynamic targets based on user BMI
     try {
-      final activeGoal = await DatabaseHelper().getActiveGoal(user.userId!);
-      if (activeGoal != null) {
-        final String goalType = activeGoal['goal_type'] ?? '';
-        if (goalType == 'LOSE_WEIGHT') {
-          _targetCalories = 1600;
-          _targetProtein = 120.0;
-          _targetCarbs = 180.0;
-          _targetFat = 44.0;
-        } else if (goalType == 'GAIN_MUSCLE') {
-          _targetCalories = 2500;
-          _targetProtein = 218.0;
-          _targetCarbs = 250.0;
-          _targetFat = 69.0;
-        } else if (goalType == 'IMPROVE_SLEEP') {
-          _targetCalories = 1900;
-          _targetProtein = 95.0;
-          _targetCarbs = 261.0;
-          _targetFat = 53.0;
-        } else if (goalType == 'STAY_HEALTHY') {
-          _targetCalories = 2000;
-          _targetProtein = 125.0;
-          _targetCarbs = 250.0;
-          _targetFat = 55.0;
+      double bmi = 22.0;
+      if (user.height != null && user.weight != null && user.height! > 0) {
+        double h = user.height!;
+        if (h > 10) {
+          h = h / 100.0;
         }
+        bmi = user.weight! / (h * h);
+      }
+      String goalType = 'STAY_HEALTHY';
+      if (bmi > 24.9) {
+        goalType = 'LOSE_WEIGHT';
+      } else if (bmi < 18.5) {
+        goalType = 'GAIN_MUSCLE';
+      }
+
+      if (goalType == 'LOSE_WEIGHT') {
+        _targetCalories = 1600;
+        _targetProtein = 120.0;
+        _targetCarbs = 180.0;
+        _targetFat = 44.0;
+      } else if (goalType == 'GAIN_MUSCLE') {
+        _targetCalories = 2500;
+        _targetProtein = 218.0;
+        _targetCarbs = 250.0;
+        _targetFat = 69.0;
+      } else {
+        _targetCalories = 2000;
+        _targetProtein = 125.0;
+        _targetCarbs = 250.0;
+        _targetFat = 55.0;
       }
     } catch (e) {
       print("Lỗi tải mục tiêu cho dinh dưỡng: $e");
@@ -84,7 +93,28 @@ class _NutritionScreenState extends State<NutritionScreen> {
       });
     } catch (e) {
       print("Lỗi tải nhật ký dinh dưỡng: $e");
-      setState(() => _isLoading = false);
+      try {
+        final localMeals = await DatabaseHelper().getMealsForDate(user.userId!, dateStr);
+        setState(() {
+          _mealsList = localMeals;
+          _isLoading = false;
+        });
+      } catch (dbError) {
+        print("Lỗi tải local meals: $dbError");
+        setState(() {
+          _mealsList = [];
+          _isLoading = false;
+        });
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Lỗi tải dữ liệu dinh dưỡng từ máy chủ. Hiển thị dữ liệu ngoại tuyến (Offline)."),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -221,24 +251,45 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 Navigator.pop(ctx);
                 setState(() => _isLoading = true);
 
-                await _controller.addMeal(
-                  userId: user.userId!,
-                  date: dateStr,
-                  mealType: mealType,
-                  foodName: foodName,
-                  calories: calories,
-                  protein: protein,
-                  carbs: carbs,
-                  fat: fat,
-                );
+                try {
+                  await _controller.addMeal(
+                    userId: user.userId!,
+                    date: dateStr,
+                    mealType: mealType,
+                    foodName: foodName,
+                    calories: calories,
+                    protein: protein,
+                    carbs: carbs,
+                    fat: fat,
+                  );
 
-                NotificationService().showNotification(
-                  id: 20,
-                  title: "Ghi nhận dinh dưỡng",
-                  body: "Món ăn '$foodName' đã được thêm thành công.",
-                );
-
-                _loadMeals();
+                  NotificationService().showNotification(
+                    id: 20,
+                    title: "Ghi nhận dinh dưỡng",
+                    body: "Món ăn '$foodName' đã được thêm thành công.",
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text("Đã ghi nhận bữa ăn: $foodName 🎉"),
+                        backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ."),
+                        backgroundColor: Colors.blueGrey,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                } finally {
+                  _loadMeals();
+                }
               },
               child: const Text('Lưu lại', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             )
@@ -285,18 +336,46 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
     if (confirm == true) {
       setState(() => _isLoading = true);
-      await _controller.deleteMeal(logId);
-      NotificationService().showNotification(
-        id: 21,
-        title: "Xóa bữa ăn",
-        body: "Đã xóa món ăn khỏi nhật ký thành công.",
-      );
-      _loadMeals();
+      try {
+        await _controller.deleteMeal(logId);
+        NotificationService().showNotification(
+          id: 21,
+          title: "Xóa bữa ăn",
+          body: "Đã xóa món ăn khỏi nhật ký thành công.",
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đã xóa bữa ăn thành công."),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đã xóa ngoại tuyến. Không thể kết nối với máy chủ để đồng bộ."),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } finally {
+        _loadMeals();
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = Provider.of<UserProvider>(context).getUser();
+    if (user == null || user.userId == null) {
+      return const Scaffold(
+        body: Center(child: Text('Đang tải...')),
+      );
+    }
     int totalCalories = 0;
     double totalProtein = 0.0;
     double totalCarbs = 0.0;
@@ -371,6 +450,8 @@ class _NutritionScreenState extends State<NutritionScreen> {
                     _buildMealCategoryList('Dinner', 'Bữa tối', Icons.nights_stay_outlined, const Color(0xFF6A1B9A)),
                     const SizedBox(height: 12),
                     _buildMealCategoryList('Snack', 'Bữa phụ', Icons.local_cafe_outlined, const Color(0xFF198754)),
+                    const SizedBox(height: 24),
+                    AlarmReminderCard(userId: user.userId!, type: 'nutrition'),
                     const SizedBox(height: 100),
                   ],
                 ),

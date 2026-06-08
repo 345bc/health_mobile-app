@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
-// import 'package:frontend/screens/sign-in_screen.dart';
-// import 'package:frontend/screens/sign-up_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'screens/splash_screen.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('vi', null);
   await NotificationService().init();
+  FlutterError.onError = (details) {
+    debugPrint('FlutterError: ${details.exception}');
+    debugPrint('Stack: ${details.stack}');
+  };
   runApp(const MyApp());
 }
 

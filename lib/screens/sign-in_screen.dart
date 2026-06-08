@@ -38,49 +38,73 @@ class _SigninScreenState extends State<SigninScreen> {
     final String email = _emailController.text.trim();
     final String password = _passwordController.text.trim();
 
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Vui lòng điền đầy đủ email và mật khẩu."),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      setState(() {
-        _isLoading = true;
-      });
-
       final response = await userService.signin(email, password);
 
-      if (response.statusCode == 200) {
-        final data = response.data['data'];
+      if (response?.statusCode == 200) {
+        final data = response?.data['data'];
         final userData = data['user'];
-        // final token = data['token'];
 
-        // Lưu token
-        // await _saveToken(token);
-
-        // final userInfo = await userService.getCurrentUser();
-        // final String userName = userInfo['name'];
-
-        final User? existingUser = await _userController.getUserByEmail(email);
+        User? existingUser;
+        try {
+          existingUser = await _userController.getUserByEmail(email);
+        } catch (dbError) {
+          debugPrint("Lỗi đọc SQLite khi đăng nhập: $dbError");
+        }
+        final int serverId = userData['id'];
 
         if (!mounted) return;
 
         if (existingUser != null) {
-          Provider.of<UserProvider>(
-            context,
-            listen: false,
-          ).setUser(existingUser);
+          if (existingUser.userId != serverId) {
+            try {
+              // Xóa ID cũ không khớp và chèn lại với ID đồng bộ từ Server
+              await _userController.deleteUser(existingUser.userId!);
+              final User updatedIdUser = existingUser.copyWith(userId: serverId);
+              await _userController.insertUser(updatedIdUser);
+              if (!mounted) return;
+              Provider.of<UserProvider>(context, listen: false).setUser(updatedIdUser);
+            } catch (dbError) {
+              debugPrint("Lỗi cập nhật ID user SQLite: $dbError");
+              if (!mounted) return;
+              Provider.of<UserProvider>(context, listen: false).setUser(existingUser);
+            }
+          } else {
+            Provider.of<UserProvider>(context, listen: false).setUser(existingUser);
+          }
         } else {
           final User newUser = User(
+            userId: serverId,
             email: email,
             passwordHash: password,
             user_name: userData['name'],
           );
-          await _userController.insertUser(newUser);
+          try {
+            await _userController.insertUser(newUser);
+          } catch (dbError) {
+            debugPrint("Lỗi thêm user SQLite mới: $dbError");
+          }
 
           if (!mounted) return;
           Provider.of<UserProvider>(context, listen: false).setUser(newUser);
         }
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đăng nhập thành công! 🎉')),
         );
@@ -90,63 +114,14 @@ class _SigninScreenState extends State<SigninScreen> {
           MaterialPageRoute(builder: (context) => const MainScreen()),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint("❌ Lỗi đăng nhập xảy ra: $e");
+      debugPrint(stackTrace.toString());
+
       if (!mounted) return;
 
       if (e is DioException) {
-        if (e.type == DioExceptionType.connectionError ||
-            e.type == DioExceptionType.connectionTimeout ||
-            e.type == DioExceptionType.receiveTimeout ||
-            e.type == DioExceptionType.unknown ||
-            e.response == null) {
-          final offlineUser = await _userController.getUserByEmail(email);
-          if (!mounted) return;
-
-          if (offlineUser != null) {
-            if (offlineUser.passwordHash == password) {
-              Provider.of<UserProvider>(
-                context,
-                listen: false,
-              ).setUser(offlineUser);
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Đang chạy ở chế độ ngoại tuyến (Offline)"),
-                  backgroundColor: Colors.blueGrey,
-                  behavior: SnackBarBehavior.floating,
-                  duration: Duration(seconds: 3),
-                ),
-              );
-
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const MainScreen()),
-              );
-              return;
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Sai mật khẩu (Chế độ ngoại tuyến)"),
-                  backgroundColor: Colors.orange,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-              return;
-            }
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Không có kết nối mạng và tài khoản chưa được lưu trên thiết bị này!",
-              ),
-              backgroundColor: Colors.redAccent,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-
+        // Nếu có phản hồi lỗi từ server dưới dạng JSON map
         if (e.response != null && e.response?.data is Map<String, dynamic>) {
           final Map<String, dynamic> errorData =
               e.response!.data as Map<String, dynamic>;
@@ -162,9 +137,62 @@ class _SigninScreenState extends State<SigninScreen> {
           );
           return;
         }
+
+        // Các trường hợp lỗi mạng/máy chủ khác: thử đăng nhập ngoại tuyến
+        User? offlineUser;
+        try {
+          offlineUser = await _userController.getUserByEmail(email);
+        } catch (dbError) {
+          debugPrint("Lỗi đọc SQLite khi offline: $dbError");
+        }
+        if (!mounted) return;
+
+        if (offlineUser != null) {
+          if (offlineUser.passwordHash == password) {
+            Provider.of<UserProvider>(
+              context,
+              listen: false,
+            ).setUser(offlineUser);
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Đang chạy ở chế độ ngoại tuyến (Offline)"),
+                backgroundColor: Colors.blueGrey,
+                behavior: SnackBarBehavior.floating,
+                duration: Duration(seconds: 3),
+              ),
+            );
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MainScreen()),
+            );
+            return;
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Sai mật khẩu (Chế độ ngoại tuyến)"),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            return;
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Không có kết nối mạng hoặc máy chủ và tài khoản chưa được lưu trên thiết bị này!",
+            ),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
       }
 
-      String fallbackMessage = 'Đã xảy ra lỗi hệ thống';
+      String fallbackMessage = 'Đã xảy ra lỗi hệ thống khi đăng nhập';
       if (e is Map<String, dynamic>) {
         fallbackMessage = e['message'] ?? fallbackMessage;
       } else {

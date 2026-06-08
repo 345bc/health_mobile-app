@@ -6,6 +6,7 @@ import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/data/controller/log_controller.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:frontend/widgets/alarm_reminder_card.dart';
 
 class VitalsScreen extends StatefulWidget {
   final int initialTab; // 0: Weight, 1: BP, 2: Glucose, 3: Heart Rate
@@ -30,7 +31,9 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
     _tabController.addListener(() {
       setState(() {}); // Refresh screen state to match tab index colors & titles
     });
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
   }
 
   @override
@@ -47,16 +50,38 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
       return;
     }
 
-    // Refresh logs from server first
-    await _logController.refreshLogsFromServer(user.userId!);
+    try {
+      // Refresh logs from server first
+      await _logController.refreshLogsFromServer(user.userId!);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Lỗi tải chỉ số sinh hiệu từ máy chủ. Hiển thị dữ liệu ngoại tuyến (Offline)."),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
 
-    // Pull from local cache
-    final data = await _dbHelper.getBodyMeasurements(user.userId!);
-    if (mounted) {
-      setState(() {
-        _allMeasurements = data;
-        _isLoading = false;
-      });
+    try {
+      // Pull from local cache
+      final data = await _dbHelper.getBodyMeasurements(user.userId!);
+      if (mounted) {
+        setState(() {
+          _allMeasurements = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading body measurements: $e");
+      if (mounted) {
+        setState(() {
+          _allMeasurements = [];
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -214,6 +239,16 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                   return _buildLogItem(tabIndex, item, themeColor);
                 },
               ),
+            const SizedBox(height: 20),
+            Builder(
+              builder: (context) {
+                final user = Provider.of<UserProvider>(context, listen: false).getUser();
+                if (user != null && user.userId != null) {
+                  return AlarmReminderCard(userId: user.userId!, type: 'vitals');
+                }
+                return const SizedBox.shrink();
+              },
+            ),
             const SizedBox(height: 80), // Space for FAB
           ],
         ),
@@ -545,13 +580,36 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
     );
 
     if (confirm == true) {
-      await _logController.deleteBodyMeasurement(id);
-      NotificationService().showNotification(
-        id: 35,
-        title: "Xóa thành công",
-        body: "Bản ghi đo lường sinh hiệu đã được xóa khỏi hệ thống.",
-      );
-      _loadData();
+      setState(() => _isLoading = true);
+      try {
+        await _logController.deleteBodyMeasurement(id);
+        NotificationService().showNotification(
+          id: 35,
+          title: "Xóa thành công",
+          body: "Bản ghi đo lường sinh hiệu đã được xóa khỏi hệ thống.",
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đã xóa bản ghi sinh hiệu thành công."),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đã xóa ngoại tuyến. Không thể kết nối với máy chủ để đồng bộ."),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } finally {
+        _loadData();
+      }
     }
   }
 
@@ -660,51 +718,72 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                 Navigator.pop(ctx);
                 setState(() => _isLoading = true);
 
-                if (tabIndex == 0) {
-                  final val = double.tryParse(controller1.text);
-                  if (val != null) {
-                    await _logController.logWeight(userId: userId, date: dateStr, weight: val);
-                    NotificationService().showNotification(
-                      id: 30,
-                      title: "Ghi nhận cân nặng",
-                      body: "Đã lưu cân nặng $val KG thành công.",
+                try {
+                  if (tabIndex == 0) {
+                    final val = double.tryParse(controller1.text);
+                    if (val != null) {
+                      await _logController.logWeight(userId: userId, date: dateStr, weight: val);
+                      NotificationService().showNotification(
+                        id: 30,
+                        title: "Ghi nhận cân nặng",
+                        body: "Đã lưu cân nặng $val KG thành công.",
+                      );
+                    }
+                  } else if (tabIndex == 1) {
+                    final sys = int.tryParse(controller1.text);
+                    final dia = int.tryParse(controller2.text);
+                    if (sys != null && dia != null) {
+                      final bpText = '$sys/$dia';
+                      await _logController.logBloodPressure(userId: userId, date: dateStr, bloodPressure: bpText);
+                      NotificationService().showNotification(
+                        id: 31,
+                        title: "Ghi nhận huyết áp",
+                        body: "Đã lưu huyết áp $bpText mmHg thành công.",
+                      );
+                    }
+                  } else if (tabIndex == 2) {
+                    final val = double.tryParse(controller1.text);
+                    if (val != null) {
+                      await _logController.logBloodGlucose(userId: userId, date: dateStr, bloodGlucose: val);
+                      NotificationService().showNotification(
+                        id: 32,
+                        title: "Ghi nhận đường huyết",
+                        body: "Đã lưu chỉ số đường huyết $val mmol/L thành công.",
+                      );
+                    }
+                  } else if (tabIndex == 3) {
+                    final val = int.tryParse(controller1.text);
+                    if (val != null) {
+                      await _logController.logHeartRate(userId: userId, date: dateStr, heartRate: val);
+                      NotificationService().showNotification(
+                        id: 33,
+                        title: "Ghi nhận nhịp tim",
+                        body: "Đã lưu nhịp tim $val BPM thành công.",
+                      );
+                    }
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Ghi nhận số đo sinh hiệu thành công! 🎉"),
+                        backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                   }
-                } else if (tabIndex == 1) {
-                  final sys = int.tryParse(controller1.text);
-                  final dia = int.tryParse(controller2.text);
-                  if (sys != null && dia != null) {
-                    final bpText = '$sys/$dia';
-                    await _logController.logBloodPressure(userId: userId, date: dateStr, bloodPressure: bpText);
-                    NotificationService().showNotification(
-                      id: 31,
-                      title: "Ghi nhận huyết áp",
-                      body: "Đã lưu huyết áp $bpText mmHg thành công.",
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ."),
+                        backgroundColor: Colors.blueGrey,
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                   }
-                } else if (tabIndex == 2) {
-                  final val = double.tryParse(controller1.text);
-                  if (val != null) {
-                    await _logController.logBloodGlucose(userId: userId, date: dateStr, bloodGlucose: val);
-                    NotificationService().showNotification(
-                      id: 32,
-                      title: "Ghi nhận đường huyết",
-                      body: "Đã lưu chỉ số đường huyết $val mmol/L thành công.",
-                    );
-                  }
-                } else if (tabIndex == 3) {
-                  final val = int.tryParse(controller1.text);
-                  if (val != null) {
-                    await _logController.logHeartRate(userId: userId, date: dateStr, heartRate: val);
-                    NotificationService().showNotification(
-                      id: 33,
-                      title: "Ghi nhận nhịp tim",
-                      body: "Đã lưu nhịp tim $val BPM thành công.",
-                    );
-                  }
+                } finally {
+                  _loadData();
                 }
-
-                _loadData();
               },
               style: ElevatedButton.styleFrom(backgroundColor: _getTabColor(tabIndex)),
               child: const Text('Lưu', style: TextStyle(color: Colors.white)),

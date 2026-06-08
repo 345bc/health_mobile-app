@@ -3,7 +3,10 @@ import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/data/models/user.dart';
 
 class UserController {
-  final DatabaseHelper dbHelper = DatabaseHelper();
+  final DatabaseHelper dbHelper;
+
+  UserController({DatabaseHelper? dbHelper})
+      : dbHelper = dbHelper ?? DatabaseHelper();
 
   // CREATE - Thêm user mới
   Future<int> insertUser(User user) async {

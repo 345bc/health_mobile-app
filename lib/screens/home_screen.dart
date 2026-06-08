@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/services/activity_service.dart';
+import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/data/database_helper.dart';
@@ -8,7 +11,7 @@ import 'package:frontend/screens/activity_screen.dart';
 import 'package:frontend/screens/sleep_screen.dart';
 import 'package:frontend/screens/nutrition_screen.dart';
 import 'package:frontend/screens/vitals_screen.dart';
-import 'package:frontend/screens/goal_screen.dart';
+import 'package:frontend/screens/water_screen.dart';
 import 'package:frontend/screens/analytics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,24 +24,32 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   final DatabaseHelper _db = DatabaseHelper();
+  final ActivityService _activityService = ActivityService(ApiService());
+  // final sleep _activityService = ActivityService(ApiService());
+  // final ActivityService _activityService = ActivityService(ApiService());
+  // final ActivityService _activityService = ActivityService(ApiService());
+  // final ActivityService _activityService = ActivityService(ApiService());
 
-  // Stats đọc từ SQLite
   int _steps = 0;
   int _targetSteps = 10000;
   int _caloriesBurned = 0;
   int? _heartRate;
   String _sleepText = '--';
+  int _todayWater = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadStats();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
   }
 
-  Future<void> _loadStats() async {
+  Future<void> _loadData() async {
+    if (!mounted) return;
+
     setState(() => _isLoading = true);
 
-    if (!mounted) return;
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
     if (user == null) {
       setState(() => _isLoading = false);
@@ -46,38 +57,107 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final int userId = user.userId ?? 0;
 
-    // Đọc song song từ DB
-    final results = await Future.wait([
-      _db.getTodayActivity(userId),
-      _db.getLastSleep(userId),
-      _db.getLatestHeartRate(userId),
-      _db.getLatestBodyMeasurement(userId),
-      _db.getActiveGoal(userId),
-    ]);
+    try {
+      final results = await Future.wait([
+        _db.getTodayActivity(userId),
+        _db.getLastSleep(userId),
+        _db.getLatestHeartRate(userId),
+        _db.getLatestBodyMeasurement(userId),
+        _db.getTodayTotalWater(userId),
+      ]);
+      if (!mounted) return;
 
-    if (!mounted) return;
+      final Activity? activity = results[0] as Activity?;
+      final SleepLog? sleep = results[1] as SleepLog?;
+      final int? heartRate = results[2] as int?;
+      // final BodyMeasurement? body = results[3] as BodyMeasurement?;
+      final int todayWater = (results[4] as int?) ?? 0;
 
-    final Activity? activity = results[0] as Activity?;
-    final SleepLog? sleep = results[1] as SleepLog?;
-    final int? heartRate = results[2] as int?;
-    final Map<String, dynamic>? activeGoal = results[4] as Map<String, dynamic>?;
-
-    int targetSteps = 10000;
-    if (activeGoal != null && activeGoal['goal_type'] == 'STAY_HEALTHY' && activeGoal['target_value'] != null) {
-      targetSteps = (activeGoal['target_value'] as num).toInt();
+      setState(() {
+        _steps = activity?.steps ?? 0;
+        _caloriesBurned = activity?.caloriesBurned ?? 0;
+        _heartRate = heartRate;
+        _sleepText = sleep?.durationFormatted ?? '--';
+        _todayWater = todayWater;
+        // _targetSteps    = user.targetSteps ?? 10000;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Load local error: $e');
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      return;
     }
 
-    setState(() {
-      _steps = activity?.steps ?? 0;
-      _caloriesBurned = activity?.caloriesBurned ?? 0;
-      _heartRate = heartRate;
-      _sleepText = sleep?.durationFormatted ?? '--';
-      _targetSteps = targetSteps;
-      _isLoading = false;
-    });
+    // _syncFromServer(userId);
+
+    // final results = await Future.wait([
+    //   _db.getTodayActivity(userId),
+    //   _db.getLastSleep(userId),
+    //   _db.getLatestHeartRate(userId),
+    //   _db.getLatestBodyMeasurement(userId),
+    //   _db.getTodayTotalWater(userId),
+    // ]);
+
+    // if (!mounted) return;
+
+    // final Activity? activity = results[0] as Activity?;
+    // final SleepLog? sleep = results[1] as SleepLog?;
+    // final int? heartRate = results[2] as int?;
+    // final int todayWater = results[4] as int;
+
+    // int targetSteps = 10000;
+
+    // setState(() {
+    //   _steps = activity?.steps ?? 0;
+    //   _caloriesBurned = activity?.caloriesBurned ?? 0;
+    //   _heartRate = heartRate;
+    //   _sleepText = sleep?.durationFormatted ?? '--';
+    //   _targetSteps = targetSteps;
+    //   _todayWater = todayWater;
+    //   _isLoading = false;
+    // });
   }
 
+  // Future<void> _syncFromServer(int userId) async {
+  //   try {
+  //     final results = await Future.wait([
+  //       _api.getTodayActivity(userId),
+  //       _api.getLastSleep(userId),
+  //       _api.getLatestHeartRate(userId),
+  //       _api.getLatestBodyMeasurement(userId),
+  //       _api.getTodayTotalWater(userId),
+  //     ]);
 
+  //     // Lưu xuống local
+  //     await Future.wait([
+  //       _db.saveTodayActivity(results[0] as Activity?),
+  //       _db.saveLastSleep(results[1] as SleepLog?),
+  //       _db.saveLatestHeartRate(results[2] as int?),
+  //       _db.saveLatestBodyMeasurement(results[3] as BodyMeasurement?),
+  //       _db.saveTodayTotalWater(results[4] as int?),
+  //     ]);
+
+  //     if (!mounted) return;
+
+  //     // Cập nhật UI với data mới nhất
+  //     final Activity? activity = results[0] as Activity?;
+  //     final SleepLog? sleep = results[1] as SleepLog?;
+  //     final int? heartRate = results[2] as int?;
+  //     final int todayWater = (results[4] as int?) ?? 0;
+
+  //     setState(() {
+  //       _steps = activity?.steps ?? 0;
+  //       _caloriesBurned = activity?.caloriesBurned ?? 0;
+  //       _heartRate = heartRate;
+  //       _sleepText = sleep?.durationFormatted ?? '--';
+  //       _todayWater = todayWater;
+  //     });
+  //   } catch (e) {
+  //     // Mất mạng hoặc server lỗi → giữ nguyên local data, không crash
+  //     debugPrint('Sync API error: $e');
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
             )
           : RefreshIndicator(
-              onRefresh: _loadStats,
+              onRefresh: _loadData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(20),
@@ -109,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                           builder: (_) => const ActivityScreen(),
                         ),
-                      ).then((_) => _loadStats()),
+                      ).then((_) => _loadData()),
                       child: StepProgressCard(
                         current: _steps,
                         target: _targetSteps,
@@ -126,9 +206,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const VitalsScreen(initialTab: 3),
+                                  builder: (_) =>
+                                      const VitalsScreen(initialTab: 3),
                                 ),
-                              ).then((_) => _loadStats());
+                              ).then((_) => _loadData());
                             },
                             child: HeartRateCard(bpm: _heartRate),
                           ),
@@ -141,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               MaterialPageRoute(
                                 builder: (_) => const SleepScreen(),
                               ),
-                            ).then((_) => _loadStats()),
+                            ).then((_) => _loadData()),
                             child: SleepCard(duration: _sleepText),
                           ),
                         ),
@@ -149,14 +230,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 20),
 
-
-
                     // Calo đốt hôm nay
                     _buildCalorieCard(),
                     const SizedBox(height: 24),
 
-                    // Thẻ mục tiêu sức khỏe
-                    _buildGoalCard(),
+                    // Thẻ nước uống
+                    _buildWaterCard(),
                     const SizedBox(height: 24),
 
                     // Banner dinh dưỡng
@@ -166,17 +245,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                           builder: (_) => const NutritionScreen(),
                         ),
-                      ).then((_) => _loadStats()),
+                      ).then((_) => _loadData()),
                       child: const WorkoutBanner(),
                     ),
                     const SizedBox(height: 32),
                     _buildSectionTitle('Phân tích tuần này'),
                     const SizedBox(height: 16),
-                     GestureDetector(
+                    GestureDetector(
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const AnalyticsScreen(),
+                          ),
                         );
                       },
                       child: const WeeklyAnalysisCard(),
@@ -283,13 +364,14 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
-  Widget _buildGoalCard() {
+  Widget _buildWaterCard() {
+    final double percent = (_todayWater / 2000.0).clamp(0.0, 1.0);
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const GoalScreen()),
-        ).then((_) => _loadStats());
+          MaterialPageRoute(builder: (_) => const WaterScreen()),
+        ).then((_) => _loadData());
       },
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -297,15 +379,15 @@ class _HomeScreenState extends State<HomeScreen> {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+            colors: [Color(0xFF0EA5E9), Color(0xFF0284C7)],
           ),
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF4F46E5).withAlpha(40),
+              color: const Color(0xFF0284C7).withAlpha(40),
               blurRadius: 15,
               offset: const Offset(0, 8),
-            )
+            ),
           ],
         ),
         child: Row(
@@ -316,15 +398,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Colors.white.withAlpha(50),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.track_changes, color: Colors.white, size: 24),
+              child: const Icon(
+                Icons.water_drop,
+                color: Colors.white,
+                size: 24,
+              ),
             ),
             const SizedBox(width: 16),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'MỤC TIÊU SỨC KHỎE',
+                  const Text(
+                    'THEO DÕI NƯỚC UỐNG',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 10,
@@ -332,22 +418,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       letterSpacing: 1.0,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
-                    'Đặt mục tiêu & Nhận đề xuất',
-                    style: TextStyle(
+                    'Đã uống $_todayWater / 2000 ml',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
-                    'Đề xuất chế độ dinh dưỡng & bài tập tập luyện',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11,
-                    ),
+                    'Đạt ${(percent * 100).toInt()}% mục tiêu hôm nay',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
                   ),
                 ],
               ),
@@ -583,7 +666,6 @@ Widget _buildSmallCard({
 }
 
 // Deleted top-level _buildGoalCard
-
 
 class WorkoutBanner extends StatelessWidget {
   const WorkoutBanner({super.key});

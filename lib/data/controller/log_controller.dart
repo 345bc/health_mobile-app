@@ -1,25 +1,46 @@
+import 'package:dio/dio.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/services/body_measurement_service.dart';
 import 'package:frontend/services/mood_service.dart';
-import 'package:frontend/services/goal_service.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/activity_service.dart';
+import 'package:frontend/services/sleep_service.dart';
+import 'package:frontend/services/nutrition_service.dart';
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 
 class LogController {
-  final DatabaseHelper _dbHelper = DatabaseHelper();
-  final BodyMeasurementService _measurementService = BodyMeasurementService(ApiService());
-  final MoodService _moodService = MoodService(ApiService());
-  final GoalService _goalService = GoalService(ApiService());
-  final ActivityService _activityService = ActivityService(ApiService());
+  final DatabaseHelper _dbHelper;
+  final BodyMeasurementService _measurementService;
+  final MoodService _moodService;
+  final ActivityService _activityService;
+  final SleepService _sleepService;
+  final NutritionService _nutritionService;
+
+  LogController({
+    DatabaseHelper? dbHelper,
+    BodyMeasurementService? measurementService,
+    MoodService? moodService,
+    ActivityService? activityService,
+    SleepService? sleepService,
+    NutritionService? nutritionService,
+  })  : _dbHelper = dbHelper ?? DatabaseHelper(),
+        _measurementService =
+            measurementService ?? BodyMeasurementService(ApiService()),
+        _moodService = moodService ?? MoodService(ApiService()),
+        _activityService = activityService ?? ActivityService(ApiService()),
+        _sleepService = sleepService ?? SleepService(ApiService()),
+        _nutritionService = nutritionService ?? NutritionService(ApiService());
 
   /// Sync all measurements and moods from the server to local SQLite
   Future<void> refreshLogsFromServer(int userId) async {
     try {
       // 1. Sync Body Measurements
       final mResponse = await _measurementService.getBodyMeasurementsByUser(userId);
-      if (mResponse != null && mResponse.statusCode == 200) {
+      if (mResponse == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (mResponse.statusCode == 200) {
         final Map<String, dynamic> responseBody = mResponse.data is Map<String, dynamic>
             ? mResponse.data
             : {};
@@ -50,7 +71,10 @@ class LogController {
 
       // 2. Sync Moods
       final moodResponse = await _moodService.getMoodEntriesByUser(userId);
-      if (moodResponse != null && moodResponse.statusCode == 200) {
+      if (moodResponse == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (moodResponse.statusCode == 200) {
         final Map<String, dynamic> responseBody = moodResponse.data is Map<String, dynamic>
             ? moodResponse.data
             : {};
@@ -76,41 +100,14 @@ class LogController {
         }
       }
 
-      // 3. Sync Goals
-      final goalResponse = await _goalService.getActiveGoal(userId);
-      if (goalResponse != null && goalResponse.statusCode == 200) {
-        final Map<String, dynamic> responseBody = goalResponse.data is Map<String, dynamic>
-            ? goalResponse.data
-            : {};
-        final dynamic data = responseBody['data'] ?? responseBody;
-
-        if (data is Map<String, dynamic> && data.isNotEmpty) {
-          final db = await _dbHelper.database;
-
-          // Deactivate old local active goals
-          await db.update(
-            'goals',
-            {'status': 'COMPLETED'},
-            where: 'user_id = ? AND status = ?',
-            whereArgs: [userId, 'ACTIVE'],
-          );
-
-          // Insert active goal
-          await db.insert('goals', {
-            'goal_id': data['id'],
-            'user_id': userId,
-            'goal_type': data['goalType'],
-            'target_value': data['targetValue'],
-            'start_date': data['startDate'],
-            'end_date': data['endDate'],
-            'status': data['status'] ?? 'ACTIVE',
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-      }
+      // 3. Goal Sync removed
 
       // 4. Sync Activities
       final activityResponse = await _activityService.getActivitiesByUser(userId);
-      if (activityResponse != null && activityResponse.statusCode == 200) {
+      if (activityResponse == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (activityResponse.statusCode == 200) {
         final Map<String, dynamic> responseBody = activityResponse.data is Map<String, dynamic>
             ? activityResponse.data
             : {};
@@ -137,8 +134,84 @@ class LogController {
           await batch.commit(noResult: true);
         }
       }
+
+      // 5. Sync Sleep Logs
+      final sleepResponse = await _sleepService.getSleepsByUser(userId);
+      if (sleepResponse == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
+      if (sleepResponse.statusCode == 200) {
+        final Map<String, dynamic> responseBody = sleepResponse.data is Map<String, dynamic>
+            ? sleepResponse.data
+            : {};
+        final dynamic rawList = responseBody['data'] ?? responseBody;
+
+        if (rawList is List) {
+          final db = await _dbHelper.database;
+          final batch = db.batch();
+          batch.delete('sleeps', where: 'user_id = ?', whereArgs: [userId]);
+
+          for (var item in rawList) {
+            if (item is Map<String, dynamic>) {
+              batch.insert('sleeps', {
+                'sleep_id': item['id'],
+                'user_id': userId,
+                'date': item['date'],
+                'start_time': item['startTime'],
+                'end_time': item['endTime'],
+                'duration': item['duration'],
+                'quality_score': item['qualityScore'],
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+          }
+          await batch.commit(noResult: true);
+        }
+      }
+
+      // 6. Sync Nutrition Logs (cho streak)
+      try {
+        final nutritionResponse = await _nutritionService.getAllNutritionLogsByUser(userId);
+        if (nutritionResponse != null && nutritionResponse.statusCode == 200) {
+          final Map<String, dynamic> responseBody = nutritionResponse.data is Map<String, dynamic>
+              ? nutritionResponse.data
+              : {};
+          final dynamic rawList = responseBody['data'] ?? responseBody;
+
+          if (rawList is List) {
+            final db = await _dbHelper.database;
+            final batch = db.batch();
+            batch.delete('nutrition_logs', where: 'user_id = ?', whereArgs: [userId]);
+
+            for (var item in rawList) {
+              if (item is Map<String, dynamic>) {
+                // Thêm food nếu chưa tồn tại
+                final int foodId = await db.insert('foods', {
+                  'name': item['foodName'] ?? item['name'] ?? 'Unknown',
+                  'calories': item['calories'] ?? 0,
+                  'protein': item['protein'] ?? 0.0,
+                  'carbs': item['carbs'] ?? 0.0,
+                  'fat': item['fat'] ?? 0.0,
+                }, conflictAlgorithm: ConflictAlgorithm.ignore);
+                batch.insert('nutrition_logs', {
+                  'log_id': item['id'],
+                  'user_id': userId,
+                  'date': item['date'],
+                  'meal_type': item['mealType'] ?? 'other',
+                  'food_id': foodId > 0 ? foodId : (item['foodId'] ?? 1),
+                  'quantity': item['quantity'] ?? 1.0,
+                }, conflictAlgorithm: ConflictAlgorithm.replace);
+              }
+            }
+            await batch.commit(noResult: true);
+          }
+        }
+      } catch (e) {
+        // Không fail toàn bộ sync nếu nutrition lỗi
+        print('Lỗi sync nutrition logs: $e');
+      }
     } catch (e) {
       print("Lỗi khi tải dữ liệu đồng bộ từ server: $e");
+      rethrow;
     }
   }
 
@@ -188,7 +261,7 @@ class LogController {
 
         if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
           // UPDATE on server
-          await _measurementService.updateBodyMeasurement(measurementId, {
+          final response = await _measurementService.updateBodyMeasurement(measurementId, {
             'userId': userId,
             'date': date,
             'weight': weight,
@@ -197,6 +270,9 @@ class LogController {
             'bodyFatPercentage': row['body_fat_percentage'],
             'bloodGlucose': row['blood_glucose'],
           });
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
         } else {
           // CREATE on server
           final response = await _measurementService.createBodyMeasurement({
@@ -204,7 +280,10 @@ class LogController {
             'date': date,
             'weight': weight,
           });
-          if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
+          if (response.statusCode == 200 || response.statusCode == 201) {
             final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
             final data = body['data'] ?? body;
             final serverId = data['id'];
@@ -226,6 +305,7 @@ class LogController {
       }
     } catch (e) {
       print("Lỗi đồng bộ cân nặng lên server: $e");
+      rethrow;
     }
   }
 
@@ -274,7 +354,7 @@ class LogController {
 
         if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
           // UPDATE on server
-          await _measurementService.updateBodyMeasurement(measurementId, {
+          final response = await _measurementService.updateBodyMeasurement(measurementId, {
             'userId': userId,
             'date': date,
             'weight': row['weight'],
@@ -283,6 +363,9 @@ class LogController {
             'bodyFatPercentage': row['body_fat_percentage'],
             'bloodGlucose': row['blood_glucose'],
           });
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
         } else {
           // CREATE on server
           final response = await _measurementService.createBodyMeasurement({
@@ -290,7 +373,10 @@ class LogController {
             'date': date,
             'bloodPressure': bloodPressure,
           });
-          if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
+          if (response.statusCode == 200 || response.statusCode == 201) {
             final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
             final data = body['data'] ?? body;
             final serverId = data['id'];
@@ -312,6 +398,7 @@ class LogController {
       }
     } catch (e) {
       print("Lỗi đồng bộ huyết áp lên server: $e");
+      rethrow;
     }
   }
 
@@ -360,12 +447,15 @@ class LogController {
         // Wait, backend MoodEntryService doesn't have an update log by id endpoint mapping in Controller?
         // Wait! Let's check be\flutterbe\controller\v1\MoodEntryController.java.
         // Actually, creating a new mood log will save it. For simplicity, we send createMoodEntry.
-        await _moodService.createMoodEntry({
+        final response = await _moodService.createMoodEntry({
           'userId': userId,
           'date': date,
           'moodScore': moodScore,
           'notes': notes,
         });
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
       } else {
         // CREATE on server
         final response = await _moodService.createMoodEntry({
@@ -374,7 +464,10 @@ class LogController {
           'moodScore': moodScore,
           'notes': notes,
         });
-        if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+        if (response == null) {
+          throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+        }
+        if (response.statusCode == 200 || response.statusCode == 201) {
           final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
           final data = body['data'] ?? body;
           final serverId = data['id'];
@@ -395,6 +488,7 @@ class LogController {
       }
     } catch (e) {
       print("Lỗi đồng bộ tâm trạng lên server: $e");
+      rethrow;
     }
   }
 
@@ -443,7 +537,7 @@ class LogController {
 
         if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
           // UPDATE on server
-          await _measurementService.updateBodyMeasurement(measurementId, {
+          final response = await _measurementService.updateBodyMeasurement(measurementId, {
             'userId': userId,
             'date': date,
             'weight': row['weight'],
@@ -452,6 +546,9 @@ class LogController {
             'bodyFatPercentage': row['body_fat_percentage'],
             'bloodGlucose': bloodGlucose,
           });
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
         } else {
           // CREATE on server
           final response = await _measurementService.createBodyMeasurement({
@@ -459,7 +556,10 @@ class LogController {
             'date': date,
             'bloodGlucose': bloodGlucose,
           });
-          if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
+          if (response.statusCode == 200 || response.statusCode == 201) {
             final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
             final data = body['data'] ?? body;
             final serverId = data['id'];
@@ -481,6 +581,7 @@ class LogController {
       }
     } catch (e) {
       print("Lỗi đồng bộ đường huyết lên server: $e");
+      rethrow;
     }
   }
 
@@ -529,7 +630,7 @@ class LogController {
 
         if (measurementId != null && measurementId > 0 && existing.isNotEmpty) {
           // UPDATE on server
-          await _measurementService.updateBodyMeasurement(measurementId, {
+          final response = await _measurementService.updateBodyMeasurement(measurementId, {
             'userId': userId,
             'date': date,
             'weight': row['weight'],
@@ -538,6 +639,9 @@ class LogController {
             'bodyFatPercentage': row['body_fat_percentage'],
             'bloodGlucose': row['blood_glucose'],
           });
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
         } else {
           // CREATE on server
           final response = await _measurementService.createBodyMeasurement({
@@ -545,7 +649,10 @@ class LogController {
             'date': date,
             'heartRate': heartRate,
           });
-          if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+          if (response == null) {
+            throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+          }
+          if (response.statusCode == 200 || response.statusCode == 201) {
             final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
             final data = body['data'] ?? body;
             final serverId = data['id'];
@@ -567,6 +674,7 @@ class LogController {
       }
     } catch (e) {
       print("Lỗi đồng bộ nhịp tim lên server: $e");
+      rethrow;
     }
   }
 
@@ -579,13 +687,19 @@ class LogController {
       whereArgs: [measurementId],
     );
     try {
-      await _measurementService.deleteBodyMeasurement(measurementId);
+      final response = await _measurementService.deleteBodyMeasurement(measurementId);
+      if (response == null) {
+        throw DioException(requestOptions: RequestOptions(path: ''), message: 'Không thể kết nối đến máy chủ.');
+      }
     } catch (e) {
       print("Lỗi khi xóa đo lường trên server: $e");
+      rethrow;
     }
   }
 
   /// Calculate consecutive logging streak leading up to today
+  /// Streak dựa trên các bảng được đồng bộ đầy đủ từ server:
+  /// activities, sleeps, body_measurements, mood_entries, nutrition_logs
   Future<int> calculateStreak(int userId) async {
     final db = await _dbHelper.database;
     final List<String> queries = [
@@ -593,7 +707,7 @@ class LogController {
       "SELECT DISTINCT date FROM sleeps WHERE user_id = ?",
       "SELECT DISTINCT date FROM nutrition_logs WHERE user_id = ?",
       "SELECT DISTINCT date FROM body_measurements WHERE user_id = ?",
-      "SELECT DISTINCT date FROM mood_entries WHERE user_id = ?"
+      "SELECT DISTINCT date FROM mood_entries WHERE user_id = ?",
     ];
 
     Set<String> allDates = {};
@@ -612,6 +726,7 @@ class LogController {
         .map((d) => DateTime.tryParse(d))
         .whereType<DateTime>()
         .map((d) => DateTime(d.year, d.month, d.day))
+        .toSet()
         .toList();
     sortedDates.sort((a, b) => b.compareTo(a));
 
@@ -619,6 +734,7 @@ class LogController {
     final todayDate = DateTime(today.year, today.month, today.day);
     final yesterdayDate = todayDate.subtract(const Duration(days: 1));
 
+    // Streak chỉ tính nếu có ghi chép hôm nay hoặc hôm qua
     if (!sortedDates.contains(todayDate) && !sortedDates.contains(yesterdayDate)) {
       return 0;
     }
@@ -628,7 +744,8 @@ class LogController {
 
     while (sortedDates.contains(checkDate)) {
       streak++;
-      checkDate = checkDate.subtract(const Duration(days: 1));
+      final prevDate = checkDate.subtract(const Duration(days: 1));
+      checkDate = DateTime(prevDate.year, prevDate.month, prevDate.day);
     }
 
     return streak;

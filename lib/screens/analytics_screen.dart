@@ -1,9 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/weekly_analysis_service.dart';
-import 'package:frontend/services/goal_service.dart';
 import 'package:frontend/data/database_helper.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -15,8 +15,9 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  final WeeklyAnalysisService _analysisService = WeeklyAnalysisService(ApiService());
-  final GoalService _goalService = GoalService(ApiService());
+  final WeeklyAnalysisService _analysisService = WeeklyAnalysisService(
+    ApiService(),
+  );
 
   bool _isLoading = true;
   Map<String, dynamic>? _analysisData;
@@ -37,53 +38,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     try {
-      // 1. Load active goal from SQLite first to configure UI quickly
-      final localGoal = await DatabaseHelper().getActiveGoal(user.userId!);
-      String goalType = 'STAY_HEALTHY';
-      if (localGoal != null && localGoal['goal_type'] != null) {
-        goalType = localGoal['goal_type'];
-        setState(() {
-          _activeGoalType = goalType;
-        });
-      }
-
-      // 2. Fetch active goal from server and cache it
-      try {
-        final goalResponse = await _goalService.getActiveGoal(user.userId!);
-        if (goalResponse != null && goalResponse.statusCode == 200) {
-          final Map<String, dynamic> body = goalResponse.data is Map<String, dynamic> ? goalResponse.data : {};
-          final data = body['data'] ?? body;
-          if (data is Map<String, dynamic> && data['goalType'] != null) {
-            goalType = data['goalType'];
-            
-            // Sync with local database
-            final db = await DatabaseHelper().database;
-            await db.update(
-              'goals',
-              {'status': 'COMPLETED'},
-              where: 'user_id = ? AND status = ?',
-              whereArgs: [user.userId!, 'ACTIVE'],
-            );
-            await db.insert('goals', {
-              'goal_id': data['id'],
-              'user_id': user.userId!,
-              'goal_type': data['goalType'],
-              'target_value': data['targetValue'],
-              'start_date': data['startDate'],
-              'end_date': data['endDate'],
-              'status': data['status'] ?? 'ACTIVE',
-            }, conflictAlgorithm: ConflictAlgorithm.replace);
-          }
+      // 1. Load active goal equivalent based on user BMI
+      double bmi = 22.0;
+      if (user.height != null && user.weight != null && user.height! > 0) {
+        double h = user.height!;
+        if (h > 10) {
+          h = h / 100.0;
         }
-      } catch (ge) {
-        print("Lỗi tải mục tiêu trong báo cáo tuần: $ge");
+        bmi = user.weight! / (h * h);
+      }
+      String goalType = 'STAY_HEALTHY';
+      if (bmi > 24.9) {
+        goalType = 'LOSE_WEIGHT';
+      } else if (bmi < 18.5) {
+        goalType = 'GAIN_MUSCLE';
       }
 
       // 3. Fetch weekly analysis from remote server
       final response = await _analysisService.getWeeklyAnalysis(user.userId!);
+      if (response == null) {
+        throw DioException(
+          requestOptions: RequestOptions(path: ''),
+          message: 'Không thể kết nối đến máy chủ.',
+        );
+      }
       Map<String, dynamic>? analysisData;
-      if (response != null && response.statusCode == 200) {
-        final Map<String, dynamic> body = response.data is Map<String, dynamic> ? response.data : {};
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body = response.data is Map<String, dynamic>
+            ? response.data
+            : {};
         final data = body['data'] ?? body;
         if (data is Map<String, dynamic> && data.isNotEmpty) {
           analysisData = data;
@@ -98,6 +81,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     } catch (e) {
       print("Lỗi khi tải báo cáo phân tích: $e");
       setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Không thể tải báo cáo phân tích từ máy chủ. Vui lòng kiểm tra lại kết nối mạng.",
+            ),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -110,7 +104,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       appBar: AppBar(
         title: const Text(
           'Thống kê tuần này',
-          style: TextStyle(color: Color(0xFF111111), fontSize: 18, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: Color(0xFF111111),
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF111111),
@@ -123,7 +121,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
+            )
           : RefreshIndicator(
               onRefresh: _loadAnalysis,
               color: const Color(0xFF0F75F4),
@@ -284,7 +284,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       isHealthyChange = isHigherBetter ? isInc : !isInc;
     }
 
-    final changeColor = isHealthyChange ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final changeColor = isHealthyChange
+        ? const Color(0xFF10B981)
+        : const Color(0xFFEF4444);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -300,14 +302,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: color.withAlpha(20), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: color.withAlpha(20),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(icon, color: color, size: 18),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF6C757D)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6C757D),
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -316,7 +325,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           const SizedBox(height: 16),
           Text(
             '${cur.toStringAsFixed(cur == cur.toInt() ? 0 : 1)}$unit',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111111)),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF111111),
+            ),
           ),
           const SizedBox(height: 6),
           Row(
@@ -330,7 +343,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Expanded(
                 child: Text(
                   '${diff.abs()}% tuần trước (${prev.toStringAsFixed(prev == prev.toInt() ? 0 : 1)}$unit)',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: changeColor),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: changeColor,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -368,28 +385,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Icon(Icons.spa, color: Colors.white, size: 22),
               SizedBox(width: 8),
               Text(
-                'Lời khuyên từ Antigravity',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                'Lời khuyên từ chuyên gia',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          ...advices.map((a) => Padding(
-                padding: const EdgeInsets.only(bottom: 10.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.wb_sunny_outlined, color: Colors.white70, size: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        a.toString(),
-                        style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35, fontWeight: FontWeight.w500),
+          ...advices.map(
+            (a) => Padding(
+              padding: const EdgeInsets.only(bottom: 10.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.wb_sunny_outlined,
+                    color: Colors.white70,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      a.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

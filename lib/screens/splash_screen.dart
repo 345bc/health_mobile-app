@@ -61,28 +61,38 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _simulateLoading() async {
-    final checkLoginFuture = _userService.isLoggedIn();
+    try {
+      final checkLoginFuture = _userService.isLoggedIn();
 
-    // Chạy animation và đợi cho đến khi hoàn tất (3 giây)
-    await _controller.forward();
+      // Chạy animation và đợi cho đến khi hoàn tất (3 giây)
+      await _controller.forward();
 
-    final isLoggedIn = await checkLoginFuture;
+      final isLoggedIn = await checkLoginFuture;
 
-    if (isLoggedIn) {
-      final userMap = await _userService.getCurrentUser();
-      if (userMap != null && mounted) {
-        final user = User.fromJson(userMap);
-        Provider.of<UserProvider>(context, listen: false).setUser(user);
-      }
-    }
-
-    if (mounted) {
       if (isLoggedIn) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainScreen()),
-        );
-      } else {
+        final userMap = await _userService.getCurrentUser();
+        if (userMap != null && mounted) {
+          final user = User.fromJson(userMap);
+          Provider.of<UserProvider>(context, listen: false).setUser(user);
+        }
+      }
+
+      if (mounted) {
+        if (isLoggedIn) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const MainScreen()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SigninScreen()),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Lỗi tải thông tin đăng nhập: $e");
+      if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const SigninScreen()),

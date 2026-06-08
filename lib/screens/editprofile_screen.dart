@@ -59,12 +59,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     _gender = user?.gender;
     if (_gender == null || !_genders.contains(_gender)) {
-      _gender = 'MALE';
+      _gender = '';
     }
 
     _bloodType = user?.bloodType;
     if (_bloodType == null || !_bloodTypes.contains(_bloodType)) {
-      _bloodType = 'O+';
+      _bloodType = '';
     }
 
     _avatarUrl = user?.avatar;
@@ -430,15 +430,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           final UserService userService = UserService(apiService);
 
           if (updatedUser.userId != null) {
-            // Construct a clean patch payload matching EndUsersPatchRequest DTO
+            // Xây patchData trực tiếp từ form để tránh crash khi endUser == null
+            // (tài khoản mới chưa có EndUser). Backend PATCH /end-users/user/{userId}
+            // tự động CREATE nếu chưa có, UPDATE nếu đã có.
             final Map<String, dynamic> patchData = {
-              'fullName': updatedUser.endUser!.name,
-              'birthDate': updatedUser.endUser!.dateOfBirth,
-              'gender': updatedUser.endUser!.gender,
-              'height': updatedUser.endUser!.height,
-              'weight': updatedUser.endUser!.weight,
-              'bloodType': updatedUser.endUser!.bloodType,
-              'avatar': updatedUser.endUser!.avatar,
+              'fullName': _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
+              'birthDate': _dobController.text.trim().isEmpty ? null : _dobController.text.trim(),
+              'gender': _gender,
+              'height': double.tryParse(_heightController.text.trim()),
+              'weight': double.tryParse(_weightController.text.trim()),
+              'bloodType': _bloodType,
+              'avatar': _avatarUrl,
             };
 
             final response = await userService.updateEndUserProfile(
@@ -486,12 +488,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               title: "Cập nhật thành công",
               body: "Thông tin hồ sơ của bạn đã được lưu lại thành công.",
             );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Cập nhật hồ sơ thành công! 🎉"),
+                  backgroundColor: Colors.green,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           } else {
             NotificationService().showNotification(
               id: 2,
               title: "Lưu tạm thời (Offline)",
               body: "Đã lưu hồ sơ cục bộ. Không thể kết nối tới máy chủ.",
             );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Lưu hồ sơ ngoại tuyến thành công. Không thể kết nối với máy chủ."),
+                  backgroundColor: Colors.blueGrey,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           }
 
           if (!mounted) return;
@@ -505,6 +525,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             title: "Cập nhật thất bại",
             body: errorMessage,
           );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Lỗi: $errorMessage"),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
       }
     }
@@ -803,8 +832,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required IconData icon,
     required void Function(String?) onChanged,
   }) {
+    // Đảm bảo value hợp lệ: null nếu rỗng hoặc không có trong items
+    final String? safeValue =
+        (value != null && value.isNotEmpty && items.contains(value))
+            ? value
+            : null;
+
     return DropdownButtonFormField<String>(
-      initialValue: value,
+      value: safeValue,
       items: items.map((item) {
         return DropdownMenuItem<String>(
           value: item,

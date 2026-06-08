@@ -2,60 +2,57 @@ import 'package:dio/dio.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/token_service.dart';
 
-class MoodService {
+class WaterService {
   final ApiService _apiClient;
   final tokenService _tokenService = tokenService();
 
-  MoodService(this._apiClient);
+  WaterService(this._apiClient);
 
-  /// Ghi nhận tâm trạng mới lên server
-  Future<Response?> createMoodEntry(Map<String, dynamic> moodData) async {
+  Future<Response?> createWaterLog(Map<String, dynamic> waterData) async {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.post(
-        '/mood-entries',
-        data: moodData,
+        '/water-logs',
+        data: waterData,
         options: Options(
           headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
     } on DioException catch (e) {
-      print("Lỗi khi gửi tâm trạng lên server: ${e.message}");
+      print("Lỗi khi gửi nhật ký nước uống lên server: ${e.message}");
       return e.response;
     }
   }
 
-  /// Lấy toàn bộ danh sách tâm trạng của người dùng từ server
-  Future<Response?> getMoodEntriesByUser(int userId) async {
+  Future<Response?> getWaterLogsByUser(int userId) async {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.get(
-        '/mood-entries/user/$userId',
+        '/water-logs/user/$userId',
         options: Options(
           headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
     } on DioException catch (e) {
-      print("Lỗi khi tải tâm trạng của user từ server: ${e.message}");
+      print("Lỗi khi tải lịch sử nước uống của user từ server: ${e.message}");
       return e.response;
     }
   }
 
-  /// Xóa nhật ký tâm trạng trên server
-  Future<Response?> deleteMoodEntry(int id) async {
+  Future<Response?> deleteWaterLog(int id) async {
     try {
       final token = await _tokenService.getToken();
       final response = await _apiClient.dio.delete(
-        '/mood-entries/$id',
+        '/water-logs/$id',
         options: Options(
           headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
       return response;
     } on DioException catch (e) {
-      print("Lỗi khi xóa tâm trạng trên server: ${e.message}");
+      print("Lỗi khi xóa nhật ký nước uống trên server: ${e.message}");
       return e.response;
     }
   }

@@ -5,6 +5,7 @@ import 'package:frontend/data/controller/activity_controller.dart';
 import 'package:frontend/data/models/activity.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/data/database_helper.dart';
+import 'package:frontend/widgets/alarm_reminder_card.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -24,38 +25,47 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _load();
+    });
   }
 
   Future<void> _load() async {
-    setState(() => _isLoading = true);
-    final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null) {
-      setState(() => _isLoading = false);
-      return;
+    try {
+      setState(() => _isLoading = true);
+      final user = Provider.of<UserProvider>(context, listen: false).getUser();
+      if (user == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      final int uid = user.userId!;
+
+      final results = await Future.wait([
+        _ctrl.getTodayActivity(uid),
+        _ctrl.getRecentActivities(uid, days: 7),
+      ]);
+
+      if (!mounted) return;
+
+      int targetSteps = 10000;
+
+      setState(() {
+        _todayActivity = results[0] as Activity?;
+        _recentActivities = results[1] as List<Activity>;
+        _targetSteps = targetSteps;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi khi tải dữ liệu hoạt động: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
-    final int uid = user.userId!;
-
-    final results = await Future.wait([
-      _ctrl.getTodayActivity(uid),
-      _ctrl.getRecentActivities(uid, days: 7),
-      DatabaseHelper().getActiveGoal(uid),
-    ]);
-
-    if (!mounted) return;
-
-    final Map<String, dynamic>? activeGoal = results[2] as Map<String, dynamic>?;
-    int targetSteps = 10000;
-    if (activeGoal != null && activeGoal['goal_type'] == 'STAY_HEALTHY' && activeGoal['target_value'] != null) {
-      targetSteps = (activeGoal['target_value'] as num).toInt();
-    }
-
-    setState(() {
-      _todayActivity = results[0] as Activity?;
-      _recentActivities = results[1] as List<Activity>;
-      _targetSteps = targetSteps;
-      _isLoading = false;
-    });
   }
 
   Future<void> _showLogDialog() async {
@@ -79,6 +89,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
     if (!mounted) return;
 
+    bool isSaving = false;
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -146,38 +157,65 @@ class _ActivityScreenState extends State<ActivityScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx),
+                onPressed: isSaving ? null : () => Navigator.pop(ctx),
                 child: const Text('Hủy'),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF0F75F4),
                 ),
-                onPressed: () async {
-                  final user = Provider.of<UserProvider>(
-                    context,
-                    listen: false,
-                  ).getUser();
-                  if (user == null) return;
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        final user = Provider.of<UserProvider>(
+                          context,
+                          listen: false,
+                        ).getUser();
+                        if (user == null) return;
 
-                  final int steps = int.tryParse(stepsCtrl.text) ?? 0;
-                  double distance = double.tryParse(distanceCtrl.text) ?? 0.0;
-                  if (distance == 0 && steps > 0) {
-                    distance = steps * 0.00075;
-                  }
+                        final int steps = int.tryParse(stepsCtrl.text) ?? 0;
+                        double distance = double.tryParse(distanceCtrl.text) ?? 0.0;
+                        if (distance == 0 && steps > 0) {
+                          distance = steps * 0.00075;
+                        }
 
-                  final int calories = (weight * distance * 0.75).round();
+                        final int calories = (weight * distance * 0.75).round();
 
-                  await _ctrl.upsertTodayActivity(
-                    userId: user.userId!,
-                    steps: steps,
-                    distance: distance,
-                    caloriesBurned: calories,
-                  );
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  _load();
-                },
-                child: const Text('Lưu', style: TextStyle(color: Colors.white)),
+                        setDialogState(() => isSaving = true);
+                        try {
+                          await _ctrl.upsertTodayActivity(
+                            userId: user.userId!,
+                            steps: steps,
+                            distance: distance,
+                            caloriesBurned: calories,
+                          );
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          _load();
+                        } catch (e) {
+                          setDialogState(() => isSaving = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                    'Lỗi kết nối tới máy chủ. Dữ liệu đã được lưu ngoại tuyến.'),
+                                backgroundColor: Colors.amber[800],
+                              ),
+                            );
+                          }
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          _load();
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text('Lưu', style: TextStyle(color: Colors.white)),
               ),
             ],
           );
@@ -235,6 +273,16 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     )
                   else
                     ..._recentActivities.map(_buildActivityItem),
+                  const SizedBox(height: 24),
+                  Builder(
+                    builder: (context) {
+                      final user = Provider.of<UserProvider>(context, listen: false).getUser();
+                      if (user != null && user.userId != null) {
+                        return AlarmReminderCard(userId: user.userId!, type: 'activity');
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
                   const SizedBox(height: 80),
                 ],
               ),

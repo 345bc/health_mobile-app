@@ -6,9 +6,11 @@ import 'models/sleep_log.dart';
 import 'models/meal.dart';
 
 class DatabaseHelper {
-  static final DatabaseHelper _instance = DatabaseHelper._int();
+  static DatabaseHelper _instance = DatabaseHelper._int();
   factory DatabaseHelper() => _instance;
   DatabaseHelper._int();
+
+  static set instance(DatabaseHelper mock) => _instance = mock;
 
   static Database? _database;
 
@@ -22,7 +24,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'health_app.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -41,7 +43,7 @@ class DatabaseHelper {
     }
   }
 
-  // ===== SCHEMA VERSION 1 → 2 → 3 → 4 MIGRATION =====
+  // ===== SCHEMA VERSION 1 → 2 → 3 → 4 → 5 → 6 MIGRATION =====
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Thêm cột mới vào users
@@ -55,6 +57,27 @@ class DatabaseHelper {
     }
     if (oldVersion < 4) {
       await _addColumnIfNotExists(db, 'goals', 'status', 'TEXT');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS water_logs(
+          water_log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id      INTEGER NOT NULL,
+          date         TEXT NOT NULL,
+          amount       INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS reminders(
+          reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id     INTEGER NOT NULL,
+          type        TEXT NOT NULL,
+          time        TEXT NOT NULL,
+          is_enabled  INTEGER DEFAULT 1,
+          FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+      ''');
     }
   }
 
@@ -170,6 +193,16 @@ class DatabaseHelper {
         type        TEXT NOT NULL,
         time        TEXT NOT NULL,
         is_enabled  INTEGER DEFAULT 1,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE water_logs(
+        water_log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL,
+        date         TEXT NOT NULL,
+        amount       INTEGER NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
       )
     ''');
@@ -415,39 +448,94 @@ class DatabaseHelper {
   }
 
   // ===================================================
-  // GOALS
+  // WATER LOGS
   // ===================================================
 
-  Future<int> insertGoal(Map<String, dynamic> goal) async {
+  Future<int> insertWaterLog(Map<String, dynamic> waterLog) async {
     final db = await database;
-    return await db.insert('goals', goal,
+    return await db.insert('water_logs', waterLog,
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<Map<String, dynamic>?> getActiveGoal(int userId) async {
+  Future<List<Map<String, dynamic>>> getWaterLogsForDate(int userId, String date) async {
     final db = await database;
-    final result = await db.query('goals',
-        where: 'user_id = ? AND status = ?',
-        whereArgs: [userId, 'ACTIVE'],
-        orderBy: 'goal_id DESC',
-        limit: 1);
+    return await db.query('water_logs',
+        where: 'user_id = ? AND date = ?',
+        whereArgs: [userId, date],
+        orderBy: 'water_log_id DESC');
+  }
+
+  Future<int> getTodayTotalWater(int userId) async {
+    final db = await database;
+    final String today = _today();
+    final result = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM water_logs WHERE user_id = ? AND date = ?',
+      [userId, today],
+    );
+    if (result.isNotEmpty && result.first['total'] != null) {
+      return (result.first['total'] as num).toInt();
+    }
+    return 0;
+  }
+
+  Future<int> deleteWaterLog(int waterLogId) async {
+    final db = await database;
+    return await db.delete('water_logs',
+        where: 'water_log_id = ?',
+        whereArgs: [waterLogId]);
+  }
+
+  // ===================================================
+  // REMINDERS
+  // ===================================================
+
+  Future<int> saveReminder(int userId, String type, String time, bool isEnabled) async {
+    final db = await database;
+    final int enabledVal = isEnabled ? 1 : 0;
+    final List<Map<String, dynamic>> existing = await db.query(
+      'reminders',
+      where: 'user_id = ? AND type = ?',
+      whereArgs: [userId, type],
+    );
+
+    if (existing.isNotEmpty) {
+      return await db.update(
+        'reminders',
+        {'time': time, 'is_enabled': enabledVal},
+        where: 'user_id = ? AND type = ?',
+        whereArgs: [userId, type],
+      );
+    } else {
+      return await db.insert(
+        'reminders',
+        {
+          'user_id': userId,
+          'type': type,
+          'time': time,
+          'is_enabled': enabledVal,
+        },
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>?> getReminder(int userId, String type) async {
+    final db = await database;
+    final List<Map<String, dynamic>> result = await db.query(
+      'reminders',
+      where: 'user_id = ? AND type = ?',
+      whereArgs: [userId, type],
+    );
     if (result.isNotEmpty) return result.first;
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> getGoalsByUser(int userId) async {
+  Future<List<Map<String, dynamic>>> getRemindersByUser(int userId) async {
     final db = await database;
-    return await db.query('goals',
-        where: 'user_id = ?',
-        whereArgs: [userId],
-        orderBy: 'goal_id DESC');
-  }
-
-  Future<int> deleteGoal(int goalId) async {
-    final db = await database;
-    return await db.delete('goals',
-        where: 'goal_id = ?',
-        whereArgs: [goalId]);
+    return await db.query(
+      'reminders',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
   }
 
   // ===================================================
