@@ -1,11 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:frontend/data/models/user.dart';
-import 'package:frontend/data/models/end_user.dart';
-import 'package:frontend/data/controller/user_controller.dart';
-import 'package:frontend/data/controller/water_controller.dart';
 import 'package:frontend/services/api_service.dart';
-import 'package:frontend/services/user-service.dart';
+import 'package:frontend/services/token_service.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/screens/main_screen.dart';
@@ -24,7 +19,7 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _fadeAnim;
   late Animation<double> _scaleAnim;
   late Animation<Offset> _slideAnim;
-  final UserService _userService = UserService(ApiService());
+  final tokenService _tokenService = tokenService();
 
   double _progress = 0.0;
 
@@ -43,19 +38,16 @@ class _SplashScreenState extends State<SplashScreen>
       });
     });
 
-    //animation mờ dần
     _fadeAnim = Tween<double>(
       begin: 0,
       end: 1,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
-    // animation phóng to
     _scaleAnim = Tween<double>(
       begin: 0.8,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
 
-    //animation trượt lên
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.2),
       end: Offset.zero,
@@ -66,49 +58,34 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _simulateLoading() async {
     try {
-      final checkLoginFuture = _userService.isLoggedIn();
+      final checkLoginFuture = _tokenService.isSignIn();
 
-      // Chạy animation và đợi cho đến khi hoàn tất (3 giây)
       await _controller.forward();
 
       final isLoggedIn = await checkLoginFuture;
 
       if (isLoggedIn) {
-        final userMap = await _userService.getCurrentUser();
+        final userMap = await _tokenService.getUser();
         if (userMap != null && mounted) {
-          User user = User.fromJson(userMap);
+          final Map<String, dynamic> user = Map<String, dynamic>.from(userMap);
           Provider.of<UserProvider>(context, listen: false).setUser(user);
 
-          // Đồng bộ thông tin EndUser (chiều cao, cân nặng, giới tính...) từ server xuống SQLite & Provider
           try {
-            final profileResponse = await _userService.getEndUserProfile(user.userId!);
-            if (profileResponse != null && profileResponse.statusCode == 200) {
-              final Map<String, dynamic> responseData = profileResponse.data is String
-                  ? jsonDecode(profileResponse.data)
-                  : profileResponse.data as Map<String, dynamic>;
-
-              final dynamic data = responseData['data'] ?? responseData;
-              if (data is Map<String, dynamic>) {
-                final updatedUser = user.copyWith(
-                  endUser: EndUser.fromMap(data),
-                );
-                // Cập nhật SQLite
-                await UserController().updateUser(updatedUser);
-                // Cập nhật Provider
-                if (mounted) {
-                  Provider.of<UserProvider>(context, listen: false).setUser(updatedUser);
+            final userId = user['id'] ?? user['userId'];
+            if (userId != null) {
+              final profileResponse = await ApiService.getEndUserProfile(userId);
+              if (profileResponse != null) {
+                final dynamic data = profileResponse['data'] ?? profileResponse;
+                if (data is Map<String, dynamic>) {
+                  user['endUser'] = data;
+                  if (mounted) {
+                    Provider.of<UserProvider>(context, listen: false).setUser(user);
+                  }
                 }
               }
             }
           } catch (e) {
             debugPrint("Lỗi đồng bộ hồ sơ khi khởi động: $e");
-          }
-
-          // Đồng bộ nhắc nhở từ server xuống SQLite
-          try {
-            await WaterController().refreshRemindersFromServer(user.userId!);
-          } catch (e) {
-            debugPrint("Lỗi đồng bộ nhắc nhở khi khởi động: $e");
           }
         }
       }
@@ -211,7 +188,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
 
-              // Progress indicator
               Padding(
                 padding: const EdgeInsets.fromLTRB(40, 0, 40, 48),
                 child: Column(

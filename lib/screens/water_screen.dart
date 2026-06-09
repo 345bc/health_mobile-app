@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/controller/water_controller.dart';
-import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/widgets/alarm_reminder_card.dart';
+import 'package:frontend/services/api_service.dart';
 
 class WaterScreen extends StatefulWidget {
   const WaterScreen({super.key});
@@ -15,14 +14,12 @@ class WaterScreen extends StatefulWidget {
 
 class _WaterScreenState extends State<WaterScreen>
     with SingleTickerProviderStateMixin {
-  final WaterController _controller = WaterController();
-  final DatabaseHelper _db = DatabaseHelper();
   int _todayTotal = 0;
   final int _targetWater = 2000;
   List<Map<String, dynamic>> _todayLogs = [];
   late AnimationController _waveController;
-  String? _errorMessage;
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -48,37 +45,25 @@ class _WaterScreenState extends State<WaterScreen>
       _errorMessage = null;
     });
 
-    // setState(() => _isLoading = true);
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null || user.userId == null) {
+    final int? userId = user?['id'] ?? user?['userId'];
+    if (user == null || userId == null) {
       setState(() => _isLoading = false);
-
       return;
     }
 
-    final userId = user.userId!;
     try {
-      await _controller.refreshWaterLogsFromServer(userId);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Lỗi kết nối đến máy chủ. Hiển thị dữ liệu ngoại tuyến.",
-            ),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
+      final todayWaterResponse = await ApiService.getTodayTotalWater(userId);
+      final int total = todayWaterResponse != null && todayWaterResponse['data'] != null
+          ? (todayWaterResponse['data'] as int)
+          : 0;
 
-    try {
-      final total = await _db.getTodayTotalWater(userId);
-      final logs = await _db.getWaterLogsForDate(
-        userId,
-        DateFormat('yyyy-MM-dd').format(DateTime.now()),
-      );
+      final allLogs = await ApiService.getWaterLogsByUser(userId);
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final List<Map<String, dynamic>> logs = allLogs
+          .where((l) => l['date'] == todayStr)
+          .cast<Map<String, dynamic>>()
+          .toList();
 
       setState(() {
         _todayTotal = total;
@@ -88,8 +73,7 @@ class _WaterScreenState extends State<WaterScreen>
     } catch (e) {
       debugPrint("Error loading water logs: $e");
       setState(() {
-        _todayTotal = 0;
-        _todayLogs = [];
+        _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
         _isLoading = false;
       });
     }
@@ -97,15 +81,16 @@ class _WaterScreenState extends State<WaterScreen>
 
   Future<void> _addWater(int amount) async {
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null || user.userId == null) return;
+    final int? userId = user?['id'] ?? user?['userId'];
+    if (userId == null) return;
 
     setState(() => _isLoading = true);
     try {
-      await _controller.logWater(
-        userId: user.userId!,
-        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        amount: amount,
-      );
+      await ApiService.createWaterLog({
+        'userId': userId,
+        'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        'amount': amount,
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -118,33 +103,40 @@ class _WaterScreenState extends State<WaterScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Lưu ngoại tuyến thành công."),
-            backgroundColor: Colors.blueGrey,
+          SnackBar(
+            content: Text("Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}"),
+            backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
     }
 
-    // Reload
-    final total = await _db.getTodayTotalWater(user.userId!);
-    final logs = await _db.getWaterLogsForDate(
-      user.userId!,
-      DateFormat('yyyy-MM-dd').format(DateTime.now()),
-    );
+    try {
+      final todayWaterResponse = await ApiService.getTodayTotalWater(userId);
+      final int total = todayWaterResponse != null && todayWaterResponse['data'] != null
+          ? (todayWaterResponse['data'] as int)
+          : 0;
 
-    setState(() {
-      _todayTotal = total;
-      _todayLogs = logs;
-      _isLoading = false;
-    });
+      final allLogs = await ApiService.getWaterLogsByUser(userId);
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final List<Map<String, dynamic>> logs = allLogs
+          .where((l) => l['date'] == todayStr)
+          .cast<Map<String, dynamic>>()
+          .toList();
+
+      setState(() {
+        _todayTotal = total;
+        _todayLogs = logs;
+      });
+    } catch (_) {}
+    setState(() => _isLoading = false);
   }
 
   Future<void> _deleteLog(int id) async {
     setState(() => _isLoading = true);
     try {
-      await _controller.deleteWaterLog(id);
+      await ApiService.deleteWaterLog(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -157,11 +149,9 @@ class _WaterScreenState extends State<WaterScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Đã xóa ngoại tuyến. Không thể kết nối với máy chủ để đồng bộ.",
-            ),
-            backgroundColor: Colors.orange,
+          SnackBar(
+            content: Text("Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}"),
+            backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -169,16 +159,26 @@ class _WaterScreenState extends State<WaterScreen>
     }
 
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user != null && user.userId != null) {
-      final total = await _db.getTodayTotalWater(user.userId!);
-      final logs = await _db.getWaterLogsForDate(
-        user.userId!,
-        DateFormat('yyyy-MM-dd').format(DateTime.now()),
-      );
-      setState(() {
-        _todayTotal = total;
-        _todayLogs = logs;
-      });
+    final int? userId = user?['id'] ?? user?['userId'];
+    if (userId != null) {
+      try {
+        final todayWaterResponse = await ApiService.getTodayTotalWater(userId);
+        final int total = todayWaterResponse != null && todayWaterResponse['data'] != null
+            ? (todayWaterResponse['data'] as int)
+            : 0;
+
+        final allLogs = await ApiService.getWaterLogsByUser(userId);
+        final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final List<Map<String, dynamic>> logs = allLogs
+            .where((l) => l['date'] == todayStr)
+            .cast<Map<String, dynamic>>()
+            .toList();
+
+        setState(() {
+          _todayTotal = total;
+          _todayLogs = logs;
+        });
+      } catch (_) {}
     }
     setState(() => _isLoading = false);
   }
@@ -242,7 +242,8 @@ class _WaterScreenState extends State<WaterScreen>
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<UserProvider>(context).getUser();
-    if (user == null || user.userId == null) {
+    final int? userId = user?['id'] ?? user?['userId'];
+    if (user == null || userId == null) {
       return const Scaffold(
         body: Center(child: Text('Đang tải thông tin người dùng...')),
       );
@@ -276,7 +277,37 @@ class _WaterScreenState extends State<WaterScreen>
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0284C7)),
             )
-          : RefreshIndicator(
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Có lỗi kết nối xảy ra',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Thử lại'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0284C7),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(150, 45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
               onRefresh: _loadData,
               color: const Color(0xFF0284C7),
               child: SingleChildScrollView(
@@ -298,7 +329,7 @@ class _WaterScreenState extends State<WaterScreen>
                     const SizedBox(height: 24),
 
                     // Reminder configurations
-                    AlarmReminderCard(userId: user.userId!, type: 'water'),
+                    AlarmReminderCard(userId: userId, type: 'water'),
                     const SizedBox(height: 28),
 
                     // Today logs list card

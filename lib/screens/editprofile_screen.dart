@@ -1,10 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:frontend/data/models/user.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:frontend/data/controller/user_controller.dart';
-import 'package:frontend/services/user-service.dart';
+
 import 'package:frontend/services/api_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -46,28 +44,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     final userProvider = Provider.of<UserProvider>(context, listen: false);
-    final User? user = userProvider.getUser();
+    final user = userProvider.getUser();
 
-    _nameController = TextEditingController(text: user?.user_name ?? '');
-    _dobController = TextEditingController(text: user?.dateOfBirth ?? '');
+    final String nameVal = user?['name'] ?? user?['user_name'] ?? '';
+    final String dobVal = user?['dateOfBirth'] ?? user?['date_of_birth'] ?? '';
+    final double? heightVal = user?['height'] != null ? (user!['height'] as num).toDouble() : null;
+    final double? weightVal = user?['weight'] != null ? (user!['weight'] as num).toDouble() : null;
+
+    _nameController = TextEditingController(text: nameVal);
+    _dobController = TextEditingController(text: dobVal);
     _heightController = TextEditingController(
-      text: user?.height != null ? user!.height.toString() : '',
+      text: heightVal != null ? heightVal.toString() : '',
     );
     _weightController = TextEditingController(
-      text: user?.weight != null ? user!.weight.toString() : '',
+      text: weightVal != null ? weightVal.toString() : '',
     );
 
-    _gender = user?.gender;
+    _gender = user?['gender'];
     if (_gender == null || !_genders.contains(_gender)) {
       _gender = '';
     }
 
-    _bloodType = user?.bloodType;
+    _bloodType = user?['bloodType'] ?? user?['blood_type'];
     if (_bloodType == null || !_bloodTypes.contains(_bloodType)) {
       _bloodType = '';
     }
 
-    _avatarUrl = user?.avatar;
+    _avatarUrl = user?['avatar'];
   }
 
   ImageProvider _buildAvatarImage(String? path) {
@@ -404,114 +407,73 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void _saveProfile() async {
     if (_formKey.currentState!.validate()) {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
-      final User? currentUser = userProvider.getUser();
+      final currentUser = userProvider.getUser();
 
       if (currentUser != null) {
         setState(() {
           _isLoading = true;
         });
 
-        final updatedUser = currentUser.copyWith(
-          user_name: _nameController.text.trim(),
-          dateOfBirth: _dobController.text.trim(),
-          gender: _gender,
-          height: double.tryParse(_heightController.text),
-          weight: double.tryParse(_weightController.text),
-          bloodType: _bloodType,
-          avatar: _avatarUrl,
-        );
+        final int userId = currentUser['id'] ?? currentUser['userId'] ?? 0;
+
+        final Map<String, dynamic> updatedUser = Map.from(currentUser);
+        updatedUser['name'] = _nameController.text.trim();
+        updatedUser['dateOfBirth'] = _dobController.text.trim();
+        updatedUser['gender'] = _gender;
+        updatedUser['height'] = double.tryParse(_heightController.text.trim());
+        updatedUser['weight'] = double.tryParse(_weightController.text.trim());
+        updatedUser['bloodType'] = _bloodType;
+        updatedUser['avatar'] = _avatarUrl;
 
         bool isSavedOnServer = false;
-        bool isOffline = false;
         String errorMessage = "Đã xảy ra lỗi khi lưu hồ sơ.";
 
         try {
-          final ApiService apiService = ApiService();
-          final UserService userService = UserService(apiService);
+          final Map<String, dynamic> patchData = {
+            'fullName': _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
+            'birthDate': _dobController.text.trim().isEmpty ? null : _dobController.text.trim(),
+            'gender': _gender,
+            'height': double.tryParse(_heightController.text.trim()),
+            'weight': double.tryParse(_weightController.text.trim()),
+            'bloodType': _bloodType,
+            'avatar': _avatarUrl,
+          };
 
-          if (updatedUser.userId != null) {
-            // Xây patchData trực tiếp từ form để tránh crash khi endUser == null
-            // (tài khoản mới chưa có EndUser). Backend PATCH /end-users/user/{userId}
-            // tự động CREATE nếu chưa có, UPDATE nếu đã có.
-            final Map<String, dynamic> patchData = {
-              'fullName': _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
-              'birthDate': _dobController.text.trim().isEmpty ? null : _dobController.text.trim(),
-              'gender': _gender,
-              'height': double.tryParse(_heightController.text.trim()),
-              'weight': double.tryParse(_weightController.text.trim()),
-              'bloodType': _bloodType,
-              'avatar': _avatarUrl,
-            };
+          final response = await ApiService.updateEndUserProfile(userId, patchData);
 
-            final response = await userService.updateEndUserProfile(
-              updatedUser.userId!,
-              patchData,
-            );
-
-            if (response != null) {
-              if (response.statusCode == 200 || response.statusCode == 201) {
-                isSavedOnServer = true;
-              } else {
-                isSavedOnServer = false;
-                final responseData = response.data;
-                if (responseData is Map<String, dynamic> &&
-                    responseData.containsKey('message')) {
-                  errorMessage = responseData['message'];
-                } else {
-                  errorMessage = "Lỗi máy chủ (${response.statusCode})";
-                }
-              }
-            } else {
-              isOffline = true;
-            }
+          if (response != null) {
+            isSavedOnServer = true;
+          } else {
+            isSavedOnServer = false;
+            errorMessage = "Không thể kết nối đến máy chủ.";
           }
         } catch (e) {
           print("Lỗi khi cập nhật lên server: $e");
-          isOffline = true;
+          isSavedOnServer = false;
+          errorMessage = e.toString().replaceAll("Exception: ", "").trim();
         }
 
-        if (isSavedOnServer || isOffline) {
-          // 2. Update in SQLite Database
-          final UserController userController = UserController();
-          await userController.updateUser(updatedUser);
-
-          // 3. Update in state Provider
+        if (isSavedOnServer) {
+          // Update in Provider
           userProvider.setUser(updatedUser);
 
           setState(() {
             _isLoading = false;
           });
 
-          if (isSavedOnServer) {
-            NotificationService().showNotification(
-              id: 1,
-              title: "Cập nhật thành công",
-              body: "Thông tin hồ sơ của bạn đã được lưu lại thành công.",
+          NotificationService().showNotification(
+            id: 1,
+            title: "Cập nhật thành công",
+            body: "Thông tin hồ sơ của bạn đã được lưu lại thành công.",
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Cập nhật hồ sơ thành công! 🎉"),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+              ),
             );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Cập nhật hồ sơ thành công! 🎉"),
-                  backgroundColor: Colors.green,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          } else {
-            NotificationService().showNotification(
-              id: 2,
-              title: "Lưu tạm thời (Offline)",
-              body: "Đã lưu hồ sơ cục bộ. Không thể kết nối tới máy chủ.",
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Lưu hồ sơ ngoại tuyến thành công. Không thể kết nối với máy chủ."),
-                  backgroundColor: Colors.blueGrey,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
           }
 
           if (!mounted) return;
@@ -832,7 +794,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required IconData icon,
     required void Function(String?) onChanged,
   }) {
-    // Đảm bảo value hợp lệ: null nếu rỗng hoặc không có trong items
     final String? safeValue =
         (value != null && value.isNotEmpty && items.contains(value))
             ? value

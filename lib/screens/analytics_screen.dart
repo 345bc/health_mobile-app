@@ -1,11 +1,7 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:frontend/services/api_service.dart';
-import 'package:frontend/services/weekly_analysis_service.dart';
-import 'package:frontend/data/database_helper.dart';
-import 'package:sqflite/sqflite.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -15,13 +11,10 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  final WeeklyAnalysisService _analysisService = WeeklyAnalysisService(
-    ApiService(),
-  );
-
   bool _isLoading = true;
   Map<String, dynamic>? _analysisData;
   String _activeGoalType = 'STAY_HEALTHY';
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -30,22 +23,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _loadAnalysis() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null || user.userId == null) {
+    if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
+    final int userId = user['id'] ?? user['userId'] ?? 0;
 
     try {
       // 1. Load active goal equivalent based on user BMI
       double bmi = 22.0;
-      if (user.height != null && user.weight != null && user.height! > 0) {
-        double h = user.height!;
+      final double? heightVal = user['height'] != null ? (user['height'] as num).toDouble() : null;
+      final double? weightVal = user['weight'] != null ? (user['weight'] as num).toDouble() : null;
+
+      if (heightVal != null && weightVal != null && heightVal > 0) {
+        double h = heightVal;
         if (h > 10) {
           h = h / 100.0;
         }
-        bmi = user.weight! / (h * h);
+        bmi = weightVal / (h * h);
       }
       String goalType = 'STAY_HEALTHY';
       if (bmi > 24.9) {
@@ -55,22 +55,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       }
 
       // 3. Fetch weekly analysis from remote server
-      final response = await _analysisService.getWeeklyAnalysis(user.userId!);
-      if (response == null) {
-        throw DioException(
-          requestOptions: RequestOptions(path: ''),
-          message: 'Không thể kết nối đến máy chủ.',
-        );
-      }
+      final responseData = await ApiService.getWeeklyAnalysis(userId);
       Map<String, dynamic>? analysisData;
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> body = response.data is Map<String, dynamic>
-            ? response.data
-            : {};
-        final data = body['data'] ?? body;
-        if (data is Map<String, dynamic> && data.isNotEmpty) {
-          analysisData = data;
-        }
+      final data = responseData['data'] ?? responseData;
+      if (data is Map<String, dynamic> && data.isNotEmpty) {
+        analysisData = data;
       }
 
       setState(() {
@@ -79,19 +68,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print("Lỗi khi tải báo cáo phân tích: $e");
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Không thể tải báo cáo phân tích từ máy chủ. Vui lòng kiểm tra lại kết nối mạng.",
-            ),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      debugPrint("Lỗi khi tải báo cáo phân tích: $e");
+      setState(() {
+        _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
+        _isLoading = false;
+      });
     }
   }
 
@@ -116,7 +97,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF0F75F4)),
-            onPressed: _loadAnalysis,
+            onPressed: _isLoading ? null : _loadAnalysis,
           ),
         ],
       ),
@@ -124,47 +105,77 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
             )
-          : RefreshIndicator(
-              onRefresh: _loadAnalysis,
-              color: const Color(0xFF0F75F4),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'SO SÁNH VỚI TUẦN TRƯỚC',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF6C757D),
-                        letterSpacing: 1.2,
-                      ),
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Có lỗi kết nối xảy ra',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadAnalysis,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Thử lại'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F75F4),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(150, 45),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadAnalysis,
+                  color: const Color(0xFF0F75F4),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'SO SÁNH VỚI TUẦN TRƯỚC',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF6C757D),
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
 
-                    // Grid of comparative cards
-                    _buildComparisonsGrid(),
-                    const SizedBox(height: 28),
+                        // Grid of comparative cards
+                        _buildComparisonsGrid(),
+                        const SizedBox(height: 28),
 
-                    // Advice Section
-                    const Text(
-                      'LỜI KHUYÊN SỨC KHỎE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF6C757D),
-                        letterSpacing: 1.2,
-                      ),
+                        // Advice Section
+                        const Text(
+                          'LỜI KHUYÊN SỨC KHỎE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF6C757D),
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildAdviceCard(advices),
+                        const SizedBox(height: 80),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    _buildAdviceCard(advices),
-                    const SizedBox(height: 80),
-                  ],
+                  ),
                 ),
-              ),
-            ),
     );
   }
 

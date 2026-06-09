@@ -1,15 +1,8 @@
-import 'dart:convert';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/controller/user_controller.dart';
-import 'package:frontend/data/controller/water_controller.dart';
-import 'package:frontend/data/models/user.dart';
-import 'package:frontend/data/models/end_user.dart';
 import 'package:frontend/screens/sign-up_screen.dart';
 import 'package:frontend/screens/main_screen.dart';
-import 'package:frontend/services/user-service.dart';
 import 'package:frontend/services/api_service.dart';
 
 class SigninScreen extends StatefulWidget {
@@ -20,12 +13,8 @@ class SigninScreen extends StatefulWidget {
 }
 
 class _SigninScreenState extends State<SigninScreen> {
-  final ApiService apiService = ApiService();
-  late final UserService userService = UserService(apiService);
-
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final UserController _userController = UserController();
 
   bool _obscurePassword = true;
   bool _isLoading = false;
@@ -57,70 +46,28 @@ class _SigninScreenState extends State<SigninScreen> {
     });
 
     try {
-      final response = await userService.signin(email, password);
+      final responseData = await ApiService.signin(email, password);
 
-      if (response?.statusCode == 200) {
-        final data = response?.data['data'];
+      final data = responseData['data'];
+      if (data != null) {
         final userData = data['user'];
-
-        User? existingUser;
-        try {
-          existingUser = await _userController.getUserByEmail(email);
-        } catch (dbError) {
-          debugPrint("Lỗi đọc SQLite khi đăng nhập: $dbError");
-        }
         final int serverId = userData['id'];
-
-        if (!mounted) return;
-
-        // Đồng bộ thêm thông tin EndUser (chiều cao, cân nặng, giới tính, nhóm máu...) từ server về SQLite & Provider
-        User finalUser = existingUser != null 
-            ? existingUser.copyWith(userId: serverId)
-            : User(
-                userId: serverId,
-                email: email,
-                passwordHash: password,
-                user_name: userData['name'],
-              );
+        final Map<String, dynamic> finalUser = {
+          'id': serverId,
+          'email': email,
+          'username': userData['name'] ?? '',
+        };
 
         try {
-          final profileResponse = await userService.getEndUserProfile(serverId);
-          if (profileResponse != null && profileResponse.statusCode == 200) {
-            final Map<String, dynamic> responseData = profileResponse.data is String
-                ? jsonDecode(profileResponse.data)
-                : profileResponse.data as Map<String, dynamic>;
-
-            final dynamic profileData = responseData['data'] ?? responseData;
-            if (profileData is Map<String, dynamic>) {
-              final endUserObj = EndUser.fromMap(profileData);
-              finalUser = finalUser.copyWith(endUser: endUserObj);
+          final profileData = await ApiService.getEndUserProfile(serverId);
+          if (profileData != null) {
+            final dynamic profile = profileData['data'] ?? profileData;
+            if (profile is Map<String, dynamic>) {
+              finalUser['endUser'] = profile;
             }
           }
         } catch (profileError) {
           debugPrint("Lỗi đồng bộ hồ sơ chi tiết khi đăng nhập: $profileError");
-        }
-
-        // Lưu/Cập nhật thông tin hoàn chỉnh (gồm cả EndUser nếu có) vào SQLite
-        try {
-          if (existingUser != null) {
-            if (existingUser.userId != serverId) {
-              await _userController.deleteUser(existingUser.userId!);
-              await _userController.insertUser(finalUser);
-            } else {
-              await _userController.updateUser(finalUser);
-            }
-          } else {
-            await _userController.insertUser(finalUser);
-          }
-        } catch (dbError) {
-          debugPrint("Lỗi lưu user đầy đủ vào SQLite: $dbError");
-        }
-
-        // Đồng bộ nhắc nhở từ server xuống SQLite
-        try {
-          await WaterController().refreshRemindersFromServer(serverId);
-        } catch (reminderError) {
-          debugPrint("Lỗi đồng bộ nhắc nhở khi đăng nhập: $reminderError");
         }
 
         if (!mounted) return;
@@ -135,6 +82,8 @@ class _SigninScreenState extends State<SigninScreen> {
           context,
           MaterialPageRoute(builder: (context) => const MainScreen()),
         );
+      } else {
+        throw Exception("Không tìm thấy thông tin đăng nhập từ phản hồi.");
       }
     } catch (e, stackTrace) {
       debugPrint("❌ Lỗi đăng nhập xảy ra: $e");
@@ -142,88 +91,10 @@ class _SigninScreenState extends State<SigninScreen> {
 
       if (!mounted) return;
 
-      if (e is DioException) {
-        // Nếu có phản hồi lỗi từ server dưới dạng JSON map
-        if (e.response != null && e.response?.data is Map<String, dynamic>) {
-          final Map<String, dynamic> errorData =
-              e.response!.data as Map<String, dynamic>;
-          final String serverMessage =
-              errorData['message'] ?? 'Đã xảy ra lỗi khi đăng nhập';
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(serverMessage),
-              backgroundColor: Colors.redAccent,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-
-        // Các trường hợp lỗi mạng/máy chủ khác: thử đăng nhập ngoại tuyến
-        User? offlineUser;
-        try {
-          offlineUser = await _userController.getUserByEmail(email);
-        } catch (dbError) {
-          debugPrint("Lỗi đọc SQLite khi offline: $dbError");
-        }
-        if (!mounted) return;
-
-        if (offlineUser != null) {
-          if (offlineUser.passwordHash == password) {
-            Provider.of<UserProvider>(
-              context,
-              listen: false,
-            ).setUser(offlineUser);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Đang chạy ở chế độ ngoại tuyến (Offline)"),
-                backgroundColor: Colors.blueGrey,
-                behavior: SnackBarBehavior.floating,
-                duration: Duration(seconds: 3),
-              ),
-            );
-
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const MainScreen()),
-            );
-            return;
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Sai mật khẩu (Chế độ ngoại tuyến)"),
-                backgroundColor: Colors.orange,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-            return;
-          }
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Không có kết nối mạng hoặc máy chủ và tài khoản chưa được lưu trên thiết bị này!",
-            ),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      String fallbackMessage = 'Đã xảy ra lỗi hệ thống khi đăng nhập';
-      if (e is Map<String, dynamic>) {
-        fallbackMessage = e['message'] ?? fallbackMessage;
-      } else {
-        fallbackMessage = e.toString();
-      }
-
+      String errorMessage = e.toString().replaceAll("Exception: ", "").trim();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(fallbackMessage),
+          content: Text(errorMessage),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
@@ -267,7 +138,6 @@ class _SigninScreenState extends State<SigninScreen> {
               ),
               const SizedBox(height: 40),
 
-              // Form Nhập liệu: Email
               _buildLabelRow("Email"),
               _buildTextField(
                 controller: _emailController,
@@ -277,7 +147,6 @@ class _SigninScreenState extends State<SigninScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Form Nhập liệu: Mật khẩu
               _buildLabelRow("Password"),
               _buildTextField(
                 controller: _passwordController,
@@ -295,7 +164,6 @@ class _SigninScreenState extends State<SigninScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Nút Đăng nhập
               Container(
                 decoration: BoxDecoration(
                   boxShadow: [

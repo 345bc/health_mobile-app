@@ -29,7 +29,6 @@ class _MainScreenState extends State<MainScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: List.generate(_pages.length, (index) {
-          // ✅ Tab chưa từng mở → render SizedBox rỗng, không chạy initState
           if (!_visitedTabs.contains(index)) return const SizedBox.shrink();
           return _pages[index];
         }),
@@ -44,7 +43,7 @@ class _MainScreenState extends State<MainScreen> {
       onDestinationSelected: (int index) {
         setState(() {
           _currentIndex = index;
-          _visitedTabs.add(index); // ✅ Đánh dấu tab đã mở → lần sau giữ state
+          _visitedTabs.add(index);
         });
       },
       labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,

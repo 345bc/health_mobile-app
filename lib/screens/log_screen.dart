@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/database_helper.dart';
 import 'package:frontend/screens/nutrition_screen.dart';
 import 'package:frontend/screens/vitals_screen.dart';
-import 'package:frontend/data/controller/log_controller.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/notification_service.dart';
 
 class LogScreen extends StatefulWidget {
@@ -17,8 +16,6 @@ class LogScreen extends StatefulWidget {
 
 class _LogScreenState extends State<LogScreen> {
   DateTime _selectedDate = DateTime.now();
-  final DatabaseHelper _dbHelper = DatabaseHelper();
-  final LogController _logController = LogController();
 
   String _weightText = '--';
   String _bloodPressureText = '--';
@@ -29,6 +26,7 @@ class _LogScreenState extends State<LogScreen> {
   List<double> _weeklyCompletionRates = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
   bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -39,25 +37,10 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   Future<void> _initLogs() async {
-    setState(() => _isLoading = true);
-    final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user != null && user.userId != null) {
-      try {
-        await _logController.refreshLogsFromServer(user.userId!);
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Không thể đồng bộ dữ liệu từ máy chủ. Hiển thị dữ liệu ngoại tuyến (Offline).",
-              ),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      }
-    }
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     await _loadStatsForDate();
     if (mounted) {
       setState(() => _isLoading = false);
@@ -68,43 +51,59 @@ class _LogScreenState extends State<LogScreen> {
     try {
       final user = Provider.of<UserProvider>(context, listen: false).getUser();
       if (user == null) return;
-      final int userId = user.userId ?? 1;
+      final int userId = user['id'] ?? user['userId'] ?? 1;
       final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      final db = await _dbHelper.database;
+      // Fetch all required data in parallel
+      final results = await Future.wait([
+        ApiService.getBodyMeasurementsByUser(userId),
+        ApiService.getAllNutritionLogsByUser(userId),
+        ApiService.getMoodEntriesByUser(userId),
+        ApiService.getActivitiesByUser(userId),
+        ApiService.getSleepsByUser(userId),
+      ]);
 
-      // 1. Fetch body measurement for selected date
-      final List<Map<String, dynamic>> measurements = await db.query(
-        'body_measurements',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, dateStr],
-      );
+      final List<dynamic> measurements = results[0];
+      final List<dynamic> nutritionLogs = results[1];
+      final List<dynamic> moods = results[2];
+      final List<dynamic> activities = results[3];
+      final List<dynamic> sleeps = results[4];
+
+      // 1. Filter body measurement for selected date
+      Map<String, dynamic>? selectedMeasurement;
+      for (var item in measurements) {
+        if (item is Map<String, dynamic> && item['date'] == dateStr) {
+          selectedMeasurement = item;
+          break;
+        }
+      }
 
       String weightVal = 'Chưa ghi';
       String bpVal = 'Chưa ghi';
-      if (measurements.isNotEmpty) {
-        final m = measurements.first;
-        if (m['weight'] != null) weightVal = '${m['weight']} KG';
-        if (m['blood_pressure'] != null) bpVal = '${m['blood_pressure']} MMHG';
+      if (selectedMeasurement != null) {
+        if (selectedMeasurement['weight'] != null) weightVal = '${selectedMeasurement['weight']} KG';
+        if (selectedMeasurement['bloodPressure'] != null) bpVal = '${selectedMeasurement['bloodPressure']} MMHG';
       }
 
-      // 2. Fetch meals count for selected date
-      final List<Map<String, dynamic>> meals = await db.query(
-        'nutrition_logs',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, dateStr],
-      );
-      final int mealCount = meals.length;
+      // 2. Filter nutrition logs count for selected date
+      int mealCount = 0;
+      for (var item in nutritionLogs) {
+        if (item is Map<String, dynamic> && item['date'] == dateStr) {
+          mealCount++;
+        }
+      }
 
-      // 3. Fetch mood entry for selected date
-      final List<Map<String, dynamic>> moods = await db.query(
-        'mood_entries',
-        where: 'user_id = ? AND date = ?',
-        whereArgs: [userId, dateStr],
-      );
+      // 3. Filter mood entry for selected date
+      Map<String, dynamic>? selectedMood;
+      for (var item in moods) {
+        if (item is Map<String, dynamic> && item['date'] == dateStr) {
+          selectedMood = item;
+          break;
+        }
+      }
       String moodLabel = 'Chưa ghi';
-      if (moods.isNotEmpty) {
-        final int score = moods.first['mood_score'] ?? 3;
+      if (selectedMood != null) {
+        final int score = selectedMood['moodScore'] ?? 3;
         if (score == 5) moodLabel = 'RẤT TỐT';
         if (score == 4) moodLabel = 'TỐT';
         if (score == 3) moodLabel = 'BÌNH THƯỜNG';
@@ -113,11 +112,89 @@ class _LogScreenState extends State<LogScreen> {
       }
 
       // 4. Calculate dynamic streak
-      final int streak = await _logController.calculateStreak(userId);
+      int streak = 0;
+      Set<String> allDates = {};
+      void addDates(List<dynamic> list) {
+        for (var item in list) {
+          if (item is Map<String, dynamic> && item['date'] != null) {
+            allDates.add(item['date'].toString().split('T')[0]);
+          }
+        }
+      }
+      addDates(measurements);
+      addDates(nutritionLogs);
+      addDates(moods);
+      addDates(activities);
+      addDates(sleeps);
+
+      if (allDates.isNotEmpty) {
+        List<DateTime> sortedDates = allDates
+            .map((d) => DateTime.tryParse(d))
+            .whereType<DateTime>()
+            .map((d) => DateTime(d.year, d.month, d.day))
+            .toSet()
+            .toList();
+        sortedDates.sort((a, b) => b.compareTo(a));
+
+        final today = DateTime.now();
+        final todayDate = DateTime(today.year, today.month, today.day);
+        final yesterdayDate = todayDate.subtract(const Duration(days: 1));
+
+        if (sortedDates.contains(todayDate) || sortedDates.contains(yesterdayDate)) {
+          DateTime checkDate = sortedDates.contains(todayDate) ? todayDate : yesterdayDate;
+          while (sortedDates.contains(checkDate)) {
+            streak++;
+            final prevDate = checkDate.subtract(const Duration(days: 1));
+            checkDate = DateTime(prevDate.year, prevDate.month, prevDate.day);
+          }
+        }
+      }
 
       // 5. Calculate weekly completion
-      final List<double> weeklyCompletion = await _logController
-          .calculateWeeklyCompletion(userId);
+      final now = DateTime.now();
+      final int currentWeekday = now.weekday;
+      final DateTime monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: currentWeekday - 1));
+
+      final Set<String> weightDates = {};
+      final Set<String> bpDates = {};
+      final Set<String> mealDates = {};
+      final Set<String> moodDates = {};
+
+      for (var item in measurements) {
+        if (item is Map<String, dynamic>) {
+          final String d = (item['date'] ?? '').toString().split('T')[0];
+          if (item['weight'] != null) weightDates.add(d);
+          if (item['bloodPressure'] != null) bpDates.add(d);
+        }
+      }
+
+      for (var item in nutritionLogs) {
+        if (item is Map<String, dynamic>) {
+          final String d = (item['date'] ?? '').toString().split('T')[0];
+          mealDates.add(d);
+        }
+      }
+
+      for (var item in moods) {
+        if (item is Map<String, dynamic>) {
+          final String d = (item['date'] ?? '').toString().split('T')[0];
+          moodDates.add(d);
+        }
+      }
+
+      List<double> weeklyCompletion = [];
+      for (int i = 0; i < 7; i++) {
+        final DateTime day = monday.add(Duration(days: i));
+        final String curDateStr = DateFormat('yyyy-MM-dd').format(day);
+
+        int loggedCount = 0;
+        if (weightDates.contains(curDateStr)) loggedCount++;
+        if (bpDates.contains(curDateStr)) loggedCount++;
+        if (mealDates.contains(curDateStr)) loggedCount++;
+        if (moodDates.contains(curDateStr)) loggedCount++;
+
+        weeklyCompletion.add(loggedCount / 4.0);
+      }
 
       if (!mounted) return;
 
@@ -128,9 +205,15 @@ class _LogScreenState extends State<LogScreen> {
         _moodText = moodLabel;
         _streakCount = streak;
         _weeklyCompletionRates = weeklyCompletion;
+        _errorMessage = null;
       });
     } catch (e) {
       debugPrint("Error loading stats for date: $e");
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
+        });
+      }
     }
   }
 
@@ -179,7 +262,7 @@ class _LogScreenState extends State<LogScreen> {
 
   void _showLogDialog(String category) {
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    final int userId = user?.userId ?? 1;
+    final int userId = user?['id'] ?? user?['userId'] ?? 1;
     final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
     if (category == 'Cân nặng') {
@@ -217,11 +300,37 @@ class _LogScreenState extends State<LogScreen> {
                         if (val != null) {
                           setDialogState(() => isSaving = true);
                           try {
-                            await _logController.logWeight(
-                              userId: userId,
-                              date: dateStr,
-                              weight: val,
-                            );
+                            // Gọi GET để kiểm tra xem đã có bản ghi nào trong ngày dateStr chưa
+                            final measurements = await ApiService.getBodyMeasurementsByUser(userId);
+                            Map<String, dynamic>? existing;
+                            for (var m in measurements) {
+                              if (m is Map<String, dynamic> && m['date'] == dateStr) {
+                                existing = m;
+                                break;
+                              }
+                            }
+
+                            // Chuẩn bị data update hoặc create
+                            final Map<String, dynamic> measurementData = {
+                              'userId': userId,
+                              'date': dateStr,
+                            };
+
+                            if (existing != null) {
+                              measurementData['weight'] = existing['weight'];
+                              measurementData['bloodPressure'] = existing['bloodPressure'];
+                              measurementData['heartRate'] = existing['heartRate'];
+                              measurementData['bodyFatPercentage'] = existing['bodyFatPercentage'];
+                              measurementData['bloodGlucose'] = existing['bloodGlucose'];
+                            }
+
+                            measurementData['weight'] = val;
+                            if (existing != null) {
+                              await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                            } else {
+                              await ApiService.createBodyMeasurement(measurementData);
+                            }
+
                             NotificationService().showNotification(
                               id: 30,
                               title: "Ghi nhận cân nặng",
@@ -242,11 +351,11 @@ class _LogScreenState extends State<LogScreen> {
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    "Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ.",
+                                    "Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}",
                                   ),
-                                  backgroundColor: Colors.blueGrey,
+                                  backgroundColor: Colors.red,
                                   behavior: SnackBarBehavior.floating,
                                 ),
                               );
@@ -308,11 +417,37 @@ class _LogScreenState extends State<LogScreen> {
                         if (val.isNotEmpty) {
                           setDialogState(() => isSaving = true);
                           try {
-                            await _logController.logBloodPressure(
-                              userId: userId,
-                              date: dateStr,
-                              bloodPressure: val,
-                            );
+                            // Gọi GET để kiểm tra xem đã có bản ghi nào trong ngày dateStr chưa
+                            final measurements = await ApiService.getBodyMeasurementsByUser(userId);
+                            Map<String, dynamic>? existing;
+                            for (var m in measurements) {
+                              if (m is Map<String, dynamic> && m['date'] == dateStr) {
+                                existing = m;
+                                break;
+                              }
+                            }
+
+                            // Chuẩn bị data update hoặc create
+                            final Map<String, dynamic> measurementData = {
+                              'userId': userId,
+                              'date': dateStr,
+                            };
+
+                            if (existing != null) {
+                              measurementData['weight'] = existing['weight'];
+                              measurementData['bloodPressure'] = existing['bloodPressure'];
+                              measurementData['heartRate'] = existing['heartRate'];
+                              measurementData['bodyFatPercentage'] = existing['bodyFatPercentage'];
+                              measurementData['bloodGlucose'] = existing['bloodGlucose'];
+                            }
+
+                            measurementData['bloodPressure'] = val;
+                            if (existing != null) {
+                              await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                            } else {
+                              await ApiService.createBodyMeasurement(measurementData);
+                            }
+
                             NotificationService().showNotification(
                               id: 31,
                               title: "Ghi nhận huyết áp",
@@ -333,11 +468,11 @@ class _LogScreenState extends State<LogScreen> {
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    "Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ.",
+                                    "Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}",
                                   ),
-                                  backgroundColor: Colors.blueGrey,
+                                  backgroundColor: Colors.red,
                                   behavior: SnackBarBehavior.floating,
                                 ),
                               );
@@ -447,12 +582,29 @@ class _LogScreenState extends State<LogScreen> {
                     : () async {
                         setDialogState(() => isSaving = true);
                         try {
-                          await _logController.logMood(
-                            userId: userId,
-                            date: dateStr,
-                            moodScore: score.toInt(),
-                            notes: notesController.text.trim(),
-                          );
+                          // Gọi GET để kiểm tra xem đã có bản ghi nào trong ngày dateStr chưa
+                          final moods = await ApiService.getMoodEntriesByUser(userId);
+                          Map<String, dynamic>? existing;
+                          for (var m in moods) {
+                            if (m is Map<String, dynamic> && m['date'] == dateStr) {
+                              existing = m;
+                              break;
+                            }
+                          }
+
+                          final Map<String, dynamic> moodData = {
+                            'userId': userId,
+                            'date': dateStr,
+                            'moodScore': score.toInt(),
+                            'notes': notesController.text.trim(),
+                          };
+
+                          if (existing != null) {
+                            await ApiService.updateMoodEntry(existing['id'], moodData);
+                          } else {
+                            await ApiService.createMoodEntry(moodData);
+                          }
+
                           NotificationService().showNotification(
                             id: 32,
                             title: "Ghi nhận tâm trạng",
@@ -473,12 +625,13 @@ class _LogScreenState extends State<LogScreen> {
                         } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
+                              SnackBar(
                                 content: Text(
-                                  "Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ.",
+                                  "Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}",
                                 ),
-                                backgroundColor: Colors.blueGrey,
+                                backgroundColor: Colors.red,
                                 behavior: SnackBarBehavior.floating,
+                                // added to solve the duplicate
                               ),
                             );
                           }
@@ -536,58 +689,88 @@ class _LogScreenState extends State<LogScreen> {
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
               )
-            : RefreshIndicator(
-                onRefresh: _initLogs,
-                color: const Color(0xFF0F75F4),
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20.0,
-                    vertical: 16.0,
+            : _errorMessage != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Có lỗi kết nối xảy ra',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(_errorMessage!, textAlign: TextAlign.center),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: _initLogs,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Thử lại'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F75F4),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(150, 45),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _initLogs,
+                    color: const Color(0xFF0F75F4),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0,
+                        vertical: 16.0,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          const Text(
+                            'CHỌN MỤC GHI CHÉP',
+                            style: TextStyle(
+                              color: Color(0xFF495057),
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          CategoryGrid(
+                            weightText: _weightText,
+                            bloodPressureText: _bloodPressureText,
+                            mealsText: _mealsText,
+                            moodText: _moodText,
+                            onTapCategory: _onTapCategory,
+                          ),
+
+                          const SizedBox(height: 32),
+                          ProgressCard(
+                            ontap: () => _selectDate(),
+                            streakCount: _streakCount,
+                            weeklyCompletionRates: _weeklyCompletionRates,
+                            selectedDate: _selectedDate,
+                            onDaySelected: (date) {
+                              setState(() => _selectedDate = date);
+                              _loadStatsForDate();
+                            },
+                          ),
+
+                          const SizedBox(height: 24),
+                          const AdviceCard(),
+
+                          const SizedBox(height: 24),
+                          const QuoteBanner(),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 8),
-                      const Text(
-                        'CHỌN MỤC GHI CHÉP',
-                        style: TextStyle(
-                          color: Color(0xFF495057),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      CategoryGrid(
-                        weightText: _weightText,
-                        bloodPressureText: _bloodPressureText,
-                        mealsText: _mealsText,
-                        moodText: _moodText,
-                        onTapCategory: _onTapCategory,
-                      ),
-
-                      const SizedBox(height: 32),
-                      ProgressCard(
-                        ontap: () => _selectDate(),
-                        streakCount: _streakCount,
-                        weeklyCompletionRates: _weeklyCompletionRates,
-                        selectedDate: _selectedDate,
-                        onDaySelected: (date) {
-                          setState(() => _selectedDate = date);
-                          _loadStatsForDate();
-                        },
-                      ),
-
-                      const SizedBox(height: 24),
-                      const AdviceCard(),
-
-                      const SizedBox(height: 24),
-                      const QuoteBanner(),
-                    ],
-                  ),
-                ),
-              ),
       ),
     );
   }
@@ -885,7 +1068,6 @@ class ProgressCard extends StatelessWidget {
   }
 
   Widget _buildDateTracker() {
-    // Hiển thị ngày đang được chọn, không phải luôn hôm nay
     String formattedDate = DateFormat('EEE, d MMMM', 'vi').format(selectedDate);
     final bool isToday = DateUtils.isSameDay(selectedDate, DateTime.now());
 
@@ -922,7 +1104,6 @@ class ProgressCard extends StatelessWidget {
     );
   }
 
-  // Tính ngày trong tuần hiện tại (Thứ 2 - CN) từ weekday index
   DateTime _getDateForWeekday(int weekday) {
     final DateTime now = DateTime.now();
     final DateTime monday = now.subtract(Duration(days: now.weekday - 1));
@@ -940,7 +1121,6 @@ class ProgressCard extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // Dot indicator nếu là ngày được chọn
           Container(
             width: 6,
             height: 6,
@@ -1026,7 +1206,7 @@ class AdviceCard extends StatelessWidget {
           Text(
             'Giúp kích hoạt hệ tiêu hóa và đào thải độc tố tích tụ qua đêm.',
             style: TextStyle(
-              color: Colors.white.withAlpha(200),
+              color: Colors.white,
               fontSize: 14,
               height: 1.4,
             ),
@@ -1060,7 +1240,7 @@ class QuoteBanner extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Colors.white.withAlpha(200)],
+            colors: [Colors.transparent, Colors.white],
           ),
         ),
         padding: const EdgeInsets.all(20),

@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/services/activity_service.dart';
-import 'package:frontend/services/api_service.dart';
-import 'package:frontend/services/user-service.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/database_helper.dart';
-import 'package:frontend/data/models/activity.dart';
-import 'package:frontend/data/models/sleep_log.dart';
 import 'package:frontend/screens/activity_screen.dart';
 import 'package:frontend/screens/sleep_screen.dart';
 import 'package:frontend/screens/nutrition_screen.dart';
@@ -14,6 +8,7 @@ import 'package:frontend/screens/vitals_screen.dart';
 import 'package:frontend/screens/water_screen.dart';
 import 'package:frontend/screens/analytics_screen.dart';
 import 'package:frontend/services/token_service.dart';
+import 'package:frontend/services/api_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,12 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
-  final DatabaseHelper _db = DatabaseHelper();
-  final ActivityService _activityService = ActivityService(ApiService());
-  // final sleep _activityService = ActivityService(ApiService());
-  // final ActivityService _activityService = ActivityService(ApiService());
-  // final ActivityService _activityService = ActivityService(ApiService());
-  // final ActivityService _activityService = ActivityService(ApiService());
+  String? _errorMessage;
 
   int _steps = 0;
   int _targetSteps = 10000;
@@ -49,46 +39,96 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     if (!mounted) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
     if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
-    final int userId = user.userId ?? 0;
+    final int userId = user['id'] ?? user['userId'] ?? 0;
 
     try {
       final results = await Future.wait([
-        _db.getTodayActivity(userId),
-        _db.getLastSleep(userId),
-        _db.getLatestHeartRate(userId),
-        _db.getLatestBodyMeasurement(userId),
-        _db.getTodayTotalWater(userId),
+        ApiService.getActivitiesByUser(userId),
+        ApiService.getSleepsByUser(userId),
+        ApiService.getBodyMeasurementsByUser(userId),
+        ApiService.getTodayTotalWater(userId),
         tokenService().getTargetSteps(),
       ]);
       if (!mounted) return;
 
-      final Activity? activity = results[0] as Activity?;
-      final SleepLog? sleep = results[1] as SleepLog?;
-      final int? heartRate = results[2] as int?;
-      // final BodyMeasurement? body = results[3] as BodyMeasurement?;
-      final int todayWater = (results[4] as int?) ?? 0;
-      final int targetSteps = results[5] as int;
+      final List<dynamic> activities = results[0] as List<dynamic>;
+      final List<dynamic> sleeps = results[1] as List<dynamic>;
+      final List<dynamic> measurements = results[2] as List<dynamic>;
+      final Map<String, dynamic>? todayWaterResponse = results[3] as Map<String, dynamic>?;
+      final int targetSteps = results[4] as int;
+
+      final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+      Map<String, dynamic>? todayActivity;
+      for (var act in activities) {
+        if (act['date'] == todayStr) {
+          todayActivity = act;
+          break;
+        }
+      }
+
+      Map<String, dynamic>? lastSleep;
+      if (sleeps.isNotEmpty) {
+        final sortedSleeps = List.from(sleeps);
+        sortedSleeps.sort((a, b) => b['date'].toString().compareTo(a['date'].toString()));
+        lastSleep = sortedSleeps.first;
+      }
+
+      int? heartRate;
+      if (measurements.isNotEmpty) {
+        final sortedMeasurements = List.from(measurements);
+        sortedMeasurements.sort((a, b) => b['date'].toString().compareTo(a['date'].toString()));
+        for (var m in sortedMeasurements) {
+          if (m['heartRate'] != null || m['heart_rate'] != null) {
+            heartRate = (m['heartRate'] ?? m['heart_rate']) as int;
+            break;
+          }
+        }
+      }
+
+      final int todayWater = todayWaterResponse != null && todayWaterResponse['data'] != null
+          ? (todayWaterResponse['data'] as int)
+          : 0;
+
+      String sleepText = '--';
+      if (lastSleep != null && (lastSleep['duration'] != null || lastSleep['duration_minutes'] != null)) {
+        final int dur = lastSleep['duration'] ?? lastSleep['duration_minutes'] ?? 0;
+        final h = dur ~/ 60;
+        final m = dur % 60;
+        if (h == 0) {
+          sleepText = '${m}m';
+        } else if (m == 0) {
+          sleepText = '${h}h';
+        } else {
+          sleepText = '${h}h ${m}m';
+        }
+      }
 
       setState(() {
-        _steps = activity?.steps ?? 0;
-        _caloriesBurned = activity?.caloriesBurned ?? 0;
+        _steps = todayActivity != null ? (todayActivity['steps'] ?? 0) : 0;
+        _caloriesBurned = todayActivity != null ? (todayActivity['caloriesBurned'] ?? todayActivity['calories_burned'] ?? 0) : 0;
         _heartRate = heartRate;
-        _sleepText = sleep?.durationFormatted ?? '--';
+        _sleepText = sleepText;
         _todayWater = todayWater;
         _targetSteps = targetSteps;
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Load local error: $e');
+      debugPrint('Load server error: $e');
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() {
+        _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
+        _isLoading = false;
+      });
       return;
     }
 
@@ -165,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<UserProvider>(context).getUser();
-    final String name = user?.user_name ?? '';
+    final String name = user?['username'] ?? user?['name'] ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
@@ -173,7 +213,37 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0F75F4)),
             )
-          : RefreshIndicator(
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Có lỗi kết nối xảy ra',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Thử lại'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F75F4),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(150, 45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
               onRefresh: _loadData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),

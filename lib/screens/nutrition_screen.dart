@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/models/meal.dart';
-import 'package:frontend/data/controller/nutrition_controller.dart';
+import 'package:intl/intl.dart';
 import 'package:frontend/services/notification_service.dart';
-import 'package:frontend/data/database_helper.dart';
-import 'package:frontend/widgets/alarm_reminder_card.dart';
+import 'package:frontend/services/api_service.dart';
 
 class NutritionScreen extends StatefulWidget {
   const NutritionScreen({super.key});
@@ -16,16 +13,16 @@ class NutritionScreen extends StatefulWidget {
 }
 
 class _NutritionScreenState extends State<NutritionScreen> {
-  final NutritionController _controller = NutritionController();
-  DateTime _selectedDate = DateTime.now();
-  List<Meal> _mealsList = [];
+  List<dynamic> _mealsList = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
-  // Goals
+  DateTime _selectedDate = DateTime.now();
+
   int _targetCalories = 2000;
-  double _targetProtein = 50.0;
+  double _targetProtein = 125.0;
   double _targetCarbs = 250.0;
-  double _targetFat = 70.0;
+  double _targetFat = 55.0;
 
   @override
   void initState() {
@@ -36,24 +33,30 @@ class _NutritionScreenState extends State<NutritionScreen> {
   }
 
   Future<void> _loadMeals() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
     if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
+    final int userId = user['id'] ?? user['userId'] ?? 0;
 
     final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-    // Load dynamic targets based on user BMI
     try {
       double bmi = 22.0;
-      if (user.height != null && user.weight != null && user.height! > 0) {
-        double h = user.height!;
+      final endUser = user['endUser'];
+      final heightVal = endUser != null ? endUser['height'] : null;
+      final weightVal = endUser != null ? endUser['weight'] : null;
+      if (heightVal != null && weightVal != null && heightVal > 0) {
+        double h = (heightVal as num).toDouble();
         if (h > 10) {
           h = h / 100.0;
         }
-        bmi = user.weight! / (h * h);
+        bmi = (weightVal as num).toDouble() / (h * h);
       }
       String goalType = 'STAY_HEALTHY';
       if (bmi > 24.9) {
@@ -79,129 +82,47 @@ class _NutritionScreenState extends State<NutritionScreen> {
         _targetFat = 55.0;
       }
     } catch (e) {
-      print("Lỗi tải mục tiêu cho dinh dưỡng: $e");
+      debugPrint("Lỗi tải mục tiêu cho dinh dưỡng: $e");
     }
 
     try {
-      final meals = await _controller.getMeals(
-        userId: user.userId!,
-        date: dateStr,
-      );
+      final meals = await ApiService.getNutritionLogs(userId, dateStr);
       setState(() {
         _mealsList = meals;
         _isLoading = false;
       });
     } catch (e) {
-      print("Lỗi tải nhật ký dinh dưỡng: $e");
-      try {
-        final localMeals = await DatabaseHelper().getMealsForDate(user.userId!, dateStr);
-        setState(() {
-          _mealsList = localMeals;
-          _isLoading = false;
-        });
-      } catch (dbError) {
-        print("Lỗi tải local meals: $dbError");
-        setState(() {
-          _mealsList = [];
-          _isLoading = false;
-        });
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Lỗi tải dữ liệu dinh dưỡng từ máy chủ. Hiển thị dữ liệu ngoại tuyến (Offline)."),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  void _changeDate(int days) {
-    setState(() {
-      _selectedDate = _selectedDate.add(Duration(days: days));
-    });
-    _loadMeals();
-  }
-
-  Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF0F75F4),
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null && picked != _selectedDate) {
+      debugPrint("Lỗi tải nhật ký dinh dưỡng: $e");
       setState(() {
-        _selectedDate = picked;
+        _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
+        _isLoading = false;
       });
-      _loadMeals();
     }
   }
 
-  void _showAddMealDialog() {
+  void _showAddMealDialog(String mealType) {
     final foodNameController = TextEditingController();
     final calorieController = TextEditingController();
     final proteinController = TextEditingController();
     final carbsController = TextEditingController();
     final fatController = TextEditingController();
 
-    String mealType = 'Breakfast';
-
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
+      builder: (ctx) {
+        return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Text(
-            'Ghi nhận bữa ăn mới',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          title: Row(
+            children: [
+              const Icon(Icons.restaurant, color: Color(0xFF0F75F4)),
+              const SizedBox(width: 8),
+              Text('Thêm $mealType', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
           ),
           content: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F6FB),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: mealType,
-                      isExpanded: true,
-                      icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF6C757D)),
-                      items: const [
-                        DropdownMenuItem(value: 'Breakfast', child: Text('Bữa sáng')),
-                        DropdownMenuItem(value: 'Lunch', child: Text('Bữa trưa')),
-                        DropdownMenuItem(value: 'Dinner', child: Text('Bữa tối')),
-                        DropdownMenuItem(value: 'Snack', child: Text('Bữa phụ')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() => mealType = val);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
                 _buildDialogField(foodNameController, 'Tên món ăn', Icons.restaurant_menu),
                 const SizedBox(height: 12),
                 _buildDialogField(calorieController, 'Kcal (Calo)', Icons.local_fire_department, isNumber: true),
@@ -209,7 +130,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 Row(
                   children: [
                     Expanded(child: _buildDialogField(proteinController, 'Đạm (g)', Icons.egg_outlined, isNumber: true)),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(child: _buildDialogField(carbsController, 'Carbs (g)', Icons.grain_outlined, isNumber: true)),
                   ],
                 ),
@@ -218,11 +139,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
               ],
             ),
           ),
-          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Hủy', style: TextStyle(color: Color(0xFF6C757D))),
+              child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -245,6 +165,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
                 final user = Provider.of<UserProvider>(context, listen: false).getUser();
                 if (user == null) return;
+                final int userId = user['id'] ?? user['userId'] ?? 0;
 
                 final String dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
@@ -252,50 +173,41 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 setState(() => _isLoading = true);
 
                 try {
-                  await _controller.addMeal(
-                    userId: user.userId!,
-                    date: dateStr,
-                    mealType: mealType,
-                    foodName: foodName,
-                    calories: calories,
-                    protein: protein,
-                    carbs: carbs,
-                    fat: fat,
-                  );
+                  await ApiService.createNutritionLog({
+                    'userId': userId,
+                    'date': dateStr,
+                    'mealType': mealType,
+                    'foodName': foodName,
+                    'calories': calories,
+                    'protein': protein,
+                    'carbs': carbs,
+                    'fat': fat,
+                  });
 
                   NotificationService().showNotification(
                     id: 20,
                     title: "Ghi nhận dinh dưỡng",
                     body: "Món ăn '$foodName' đã được thêm thành công.",
                   );
+
+                  _loadMeals();
+                } catch (e) {
+                  setState(() => _isLoading = false);
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text("Đã ghi nhận bữa ăn: $foodName 🎉"),
-                        backgroundColor: Colors.green,
-                        behavior: SnackBarBehavior.floating,
+                        content: Text('Lỗi khi thêm món ăn: ${e.toString().replaceAll("Exception: ", "").trim()}'),
+                        backgroundColor: Colors.red,
                       ),
                     );
                   }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ."),
-                        backgroundColor: Colors.blueGrey,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                } finally {
-                  _loadMeals();
                 }
               },
-              child: const Text('Lưu lại', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            )
+              child: const Text('Lưu', style: TextStyle(color: Colors.white)),
+            ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -303,75 +215,37 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return TextField(
       controller: ctrl,
       keyboardType: isNumber ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
-      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Icon(icon, color: const Color(0xFF6C757D), size: 18),
-        filled: true,
-        fillColor: const Color(0xFFF4F6FB),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        labelText: hint,
+        prefixIcon: Icon(icon, size: 20),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       ),
     );
   }
 
-  void _deleteMeal(int? logId) async {
-    if (logId == null) return;
-    
-    // Show confirmation
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa nhật ký bữa ăn'),
-        content: const Text('Bạn có chắc chắn muốn xóa món ăn này khỏi nhật ký?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Xóa', style: TextStyle(color: Colors.red)),
+  Future<void> _deleteMeal(int logId) async {
+    setState(() => _isLoading = true);
+    try {
+      await ApiService.deleteNutritionLog(logId);
+      _loadMeals();
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi khi xóa món ăn: ${e.toString().replaceAll("Exception: ", "").trim()}'),
+            backgroundColor: Colors.red,
           ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      setState(() => _isLoading = true);
-      try {
-        await _controller.deleteMeal(logId);
-        NotificationService().showNotification(
-          id: 21,
-          title: "Xóa bữa ăn",
-          body: "Đã xóa món ăn khỏi nhật ký thành công.",
         );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Đã xóa bữa ăn thành công."),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Đã xóa ngoại tuyến. Không thể kết nối với máy chủ để đồng bộ."),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } finally {
-        _loadMeals();
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<UserProvider>(context).getUser();
-    if (user == null || user.userId == null) {
+    final user = Provider.of<UserProvider>(context, listen: false).getUser();
+    if (user == null) {
       return const Scaffold(
         body: Center(child: Text('Đang tải...')),
       );
@@ -382,10 +256,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
     double totalFat = 0.0;
 
     for (var m in _mealsList) {
-      totalCalories += m.calories;
-      totalProtein += m.protein ?? 0.0;
-      totalCarbs += m.carbs ?? 0.0;
-      totalFat += m.fat ?? 0.0;
+      totalCalories += (m['calories'] as num?)?.toInt() ?? 0;
+      totalProtein += (m['protein'] as num?)?.toDouble() ?? 0.0;
+      totalCarbs += (m['carbs'] as num?)?.toDouble() ?? 0.0;
+      totalFat += (m['fat'] as num?)?.toDouble() ?? 0.0;
     }
 
     final double calProgress = (totalCalories / _targetCalories).clamp(0.0, 1.0);
@@ -412,231 +286,166 @@ class _NutritionScreenState extends State<NutritionScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddMealDialog,
-        backgroundColor: const Color(0xFF0F75F4),
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
-          : RefreshIndicator(
-              onRefresh: _loadMeals,
-              color: const Color(0xFF0F75F4),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDateSelector(),
-                    const SizedBox(height: 24),
-                    
-                    // Calorie card
-                    _buildCalorieCard(totalCalories, calProgress),
-                    const SizedBox(height: 24),
-                    
-                    // Macros section
-                    _buildMacrosSection(totalProtein, totalCarbs, totalFat),
-                    const SizedBox(height: 32),
-                    
-                    // Meal categories list
-                    const Text(
-                      'BỮA ĂN HÔM NAY',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF6C757D),
-                        letterSpacing: 1.2,
-                      ),
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Có lỗi kết nối xảy ra',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadMeals,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Thử lại'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F75F4),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(150, 45),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    _buildMealCategoryList('Breakfast', 'Bữa sáng', Icons.wb_sunny_outlined, const Color(0xFFD97706)),
-                    const SizedBox(height: 12),
-                    _buildMealCategoryList('Lunch', 'Bữa trưa', Icons.wb_twilight_outlined, const Color(0xFF0F75F4)),
-                    const SizedBox(height: 12),
-                    _buildMealCategoryList('Dinner', 'Bữa tối', Icons.nights_stay_outlined, const Color(0xFF6A1B9A)),
-                    const SizedBox(height: 12),
-                    _buildMealCategoryList('Snack', 'Bữa phụ', Icons.local_cafe_outlined, const Color(0xFF198754)),
-                    const SizedBox(height: 24),
-                    AlarmReminderCard(userId: user.userId!, type: 'nutrition'),
-                    const SizedBox(height: 100),
-                  ],
-                ),
-              ),
-            ),
-    );
-  }
-
-  Widget _buildDateSelector() {
-    String dateLabel = '';
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final selected = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    
-    if (selected == today) {
-      dateLabel = 'Hôm nay';
-    } else if (selected == today.subtract(const Duration(days: 1))) {
-      dateLabel = 'Hôm qua';
-    } else {
-      dateLabel = DateFormat('dd/MM/yyyy').format(_selectedDate);
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF4F6FB),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, size: 16, color: Color(0xFF0F75F4)),
-            onPressed: () => _changeDate(-1),
-          ),
-          GestureDetector(
-            onTap: _selectDate,
-            child: Row(
-              children: [
-                Text(
-                  dateLabel,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF111111)),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.calendar_month_outlined, color: Color(0xFF0F75F4), size: 18),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.arrow_forward_ios, 
-              size: 16, 
-              color: selected.isBefore(today) ? const Color(0xFF0F75F4) : Colors.grey.shade400,
-            ),
-            onPressed: selected.isBefore(today) ? () => _changeDate(1) : null,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCalorieCard(int total, double progress) {
-    final int remaining = (_targetCalories - total).clamp(0, _targetCalories);
-    final int percent = (progress * 100).toInt();
-
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFD97706).withAlpha(50),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'TIÊU THỤ CALO',
-                  style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.0),
-                ),
-                const SizedBox(height: 12),
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '$total',
-                        style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white, height: 1.0),
-                      ),
-                      TextSpan(
-                        text: ' / $_targetCalories kcal',
-                        style: const TextStyle(fontSize: 14, color: Colors.white70),
-                      ),
-                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadMeals,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildDateHeader(),
+                        const SizedBox(height: 20),
+                        _buildSummaryCard(totalCalories, calProgress),
+                        const SizedBox(height: 20),
+                        _buildMacrosProgress(totalProtein, totalCarbs, totalFat),
+                        const SizedBox(height: 28),
+                        const Text(
+                          'BỮA ĂN HÔM NAY',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF8E8E93), letterSpacing: 1.2),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildMealCategoryList('Breakfast', 'Bữa sáng', Icons.wb_twilight, Colors.orange),
+                        const SizedBox(height: 16),
+                        _buildMealCategoryList('Lunch', 'Bữa trưa', Icons.wb_sunny_outlined, Colors.blue),
+                        const SizedBox(height: 16),
+                        _buildMealCategoryList('Dinner', 'Bữa tối', Icons.nights_stay_outlined, Colors.indigo),
+                        const SizedBox(height: 16),
+                        _buildMealCategoryList('Snack', 'Bữa phụ', Icons.local_cafe_outlined, Colors.teal),
+                        const SizedBox(height: 40),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  total >= _targetCalories ? 'Đã đạt mục tiêu calo!' : 'Còn thiếu $remaining kcal nữa',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 78,
-                height: 78,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 8,
-                  backgroundColor: Colors.white.withAlpha(50),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeCap: StrokeCap.round,
-                ),
-              ),
-              Text(
-                '$percent%',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ],
-          )
-        ],
-      ),
     );
   }
 
-  Widget _buildMacrosSection(double protein, double carbs, double fat) {
+  Widget _buildDateHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(child: _buildMacroItem('Đạm (Protein)', protein, _targetProtein, const Color(0xFFEA4335))),
-        const SizedBox(width: 12),
-        Expanded(child: _buildMacroItem('Đường (Carbs)', carbs, _targetCarbs, const Color(0xFFFBBC05))),
-        const SizedBox(width: 12),
-        Expanded(child: _buildMacroItem('Béo (Fat)', fat, _targetFat, const Color(0xFF34A853))),
+        IconButton(
+          icon: const Icon(Icons.arrow_back_ios, size: 16),
+          onPressed: () {
+            setState(() {
+              _selectedDate = _selectedDate.subtract(const Duration(days: 1));
+            });
+            _loadMeals();
+          },
+        ),
+        Text(
+          DateFormat('dd MMMM, yyyy').format(_selectedDate),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        IconButton(
+          icon: const Icon(Icons.arrow_forward_ios, size: 16),
+          onPressed: () {
+            setState(() {
+              _selectedDate = _selectedDate.add(const Duration(days: 1));
+            });
+            _loadMeals();
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildMacroItem(String label, double value, double target, Color color) {
-    final double percent = target > 0 ? (value / target).clamp(0.0, 1.0) : 0;
+  Widget _buildSummaryCard(int totalCalories, double calProgress) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F6FB),
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$totalCalories',
+                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.w900, color: Color(0xFF0F75F4), height: 1),
+              ),
+              const SizedBox(height: 4),
+              const Text('Kcal đã tiêu thụ', style: TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Text('Mục tiêu: $_targetCalories Kcal', style: const TextStyle(fontSize: 12, color: Color(0xFF4A4A4A))),
+            ],
+          ),
+          SizedBox(
+            width: 80,
+            height: 80,
+            child: CircularProgressIndicator(
+              value: calProgress,
+              strokeWidth: 8,
+              backgroundColor: const Color(0xFFE5E7EB),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0F75F4)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMacrosProgress(double protein, double carbs, double fat) {
+    return Row(
+      children: [
+        Expanded(child: _macroItem('Đạm', protein, _targetProtein, Colors.orange)),
+        const SizedBox(width: 12),
+        Expanded(child: _macroItem('Carbs', carbs, _targetCarbs, Colors.blue)),
+        const SizedBox(width: 12),
+        Expanded(child: _macroItem('Béo', fat, _targetFat, Colors.teal)),
+      ],
+    );
+  }
+
+  Widget _macroItem(String label, double current, double target, Color color) {
+    final double percent = (current / target).clamp(0.0, 1.0);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F6FB),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFEBECEE), width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF6C757D)),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${value.toStringAsFixed(1)}g',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF111111)),
-          ),
-          Text(
-            '/ ${target.toInt()}g',
-            style: const TextStyle(fontSize: 11, color: Color(0xFFADB5BD)),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF8E8E93))),
+          const SizedBox(height: 6),
+          Text('${current.toStringAsFixed(1)}/${target.toInt()}g', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
@@ -653,10 +462,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
   }
 
   Widget _buildMealCategoryList(String type, String title, IconData icon, Color color) {
-    final categoryMeals = _mealsList.where((m) => m.mealType == type).toList();
+    final categoryMeals = _mealsList.where((m) => m['mealType'] == type || m['meal_type'] == type).toList();
     int categoryCalories = 0;
     for (var m in categoryMeals) {
-      categoryCalories += m.calories;
+      categoryCalories += (m['calories'] as num?)?.toInt() ?? 0;
     }
 
     return Container(
@@ -685,6 +494,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
               '$categoryCalories kcal • ${categoryMeals.length} món',
               style: const TextStyle(fontSize: 12, color: Color(0xFF6C757D)),
             ),
+            trailing: IconButton(
+              icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0F75F4)),
+              onPressed: () => _showAddMealDialog(type),
+            ),
             childrenPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
             children: [
               if (categoryMeals.isEmpty)
@@ -702,6 +515,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   itemCount: categoryMeals.length,
                   itemBuilder: (ctx, index) {
                     final meal = categoryMeals[index];
+                    final int logId = meal['id'] ?? meal['logId'] ?? meal['log_id'] ?? 0;
+                    final String foodName = meal['foodName'] ?? meal['food_name'] ?? meal['name'] ?? 'Không rõ';
+                    final int calories = meal['calories'] ?? 0;
+                    final proteinVal = meal['protein'];
+                    final carbsVal = meal['carbs'];
+                    final fatVal = meal['fat'];
+
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -716,13 +536,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  meal.foodName,
+                                  foodName,
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                 ),
-                                if (meal.protein != null || meal.carbs != null || meal.fat != null) ...[
+                                if (proteinVal != null || carbsVal != null || fatVal != null) ...[
                                   const SizedBox(height: 2),
                                   Text(
-                                    'P: ${meal.protein?.toStringAsFixed(1) ?? "0"}g  •  C: ${meal.carbs?.toStringAsFixed(1) ?? "0"}g  •  F: ${meal.fat?.toStringAsFixed(1) ?? "0"}g',
+                                    'P: ${proteinVal?.toStringAsFixed(1) ?? "0"}g  •  C: ${carbsVal?.toStringAsFixed(1) ?? "0"}g  •  F: ${fatVal?.toStringAsFixed(1) ?? "0"}g',
                                     style: const TextStyle(fontSize: 11, color: Color(0xFF6C757D)),
                                   ),
                                 ]
@@ -730,12 +550,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
                             ),
                           ),
                           Text(
-                            '+${meal.calories} kcal',
+                            '+$calories kcal',
                             style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14),
                           ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                            onPressed: () => _deleteMeal(meal.logId),
+                            onPressed: () => _deleteMeal(logId),
                           ),
                         ],
                       ),

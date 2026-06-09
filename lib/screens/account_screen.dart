@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/data/models/user.dart';
 import 'package:frontend/provider/user_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:frontend/data/controller/user_controller.dart';
-import 'package:frontend/services/user-service.dart';
+
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/notification_service.dart';
 
@@ -29,10 +27,13 @@ class _AccountScreenState extends State<AccountScreen> {
   void initState() {
     super.initState();
     final userProvider = Provider.of<UserProvider>(context, listen: false);
-    final User? user = userProvider.getUser();
+    final user = userProvider.getUser();
 
-    _usernameController = TextEditingController(text: user?.user_name ?? '');
-    _emailController = TextEditingController(text: user?.email ?? '');
+    final String nameVal = user?['name'] ?? user?['user_name'] ?? '';
+    final String emailVal = user?['email'] ?? '';
+
+    _usernameController = TextEditingController(text: nameVal);
+    _emailController = TextEditingController(text: emailVal);
     _passwordController = TextEditingController();
     _confirmPasswordController = TextEditingController();
   }
@@ -49,12 +50,14 @@ class _AccountScreenState extends State<AccountScreen> {
   void _saveAccountDetails() async {
     if (_formKey.currentState!.validate()) {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
-      final User? currentUser = userProvider.getUser();
+      final currentUser = userProvider.getUser();
 
-      if (currentUser != null && currentUser.userId != null) {
+      if (currentUser != null) {
         setState(() {
           _isLoading = true;
         });
+
+        final int userId = currentUser['id'] ?? currentUser['userId'] ?? 0;
 
         final Map<String, dynamic> patchData = {
           'name': _usernameController.text.trim(),
@@ -64,52 +67,30 @@ class _AccountScreenState extends State<AccountScreen> {
         };
 
         bool isSavedOnServer = false;
-        bool isOffline = false;
         String errorMessage = "Đã xảy ra lỗi khi lưu thông tin tài khoản.";
 
         try {
-          final ApiService apiService = ApiService();
-          final UserService userService = UserService(apiService);
-
-          final response = await userService.updateUserAccount(
-            currentUser.userId!,
-            patchData,
-          );
+          final response = await ApiService.updateUserAccount(userId, patchData);
 
           if (response != null) {
-            if (response.statusCode == 200 || response.statusCode == 201) {
-              isSavedOnServer = true;
-            } else {
-              isSavedOnServer = false;
-              final responseData = response.data;
-              if (responseData is Map<String, dynamic> &&
-                  responseData.containsKey('message')) {
-                errorMessage = responseData['message'];
-              } else {
-                errorMessage = "Lỗi máy chủ (${response.statusCode})";
-              }
-            }
+            isSavedOnServer = true;
           } else {
-            isOffline = true;
+            isSavedOnServer = false;
+            errorMessage = "Không thể kết nối đến máy chủ.";
           }
         } catch (e) {
           print("Lỗi khi cập nhật tài khoản lên server: $e");
-          isOffline = true;
+          isSavedOnServer = false;
+          errorMessage = e.toString().replaceAll("Exception: ", "").trim();
         }
 
-        if (isSavedOnServer || isOffline) {
-          // Construct updated user object
-          final updatedUser = currentUser.copyWith(
-            user_name: _usernameController.text.trim(),
-            email: _emailController.text.trim(),
-            passwordHash: _passwordController.text.isNotEmpty
-                ? _passwordController.text
-                : null,
-          );
-
-          // Update in SQLite
-          final UserController userController = UserController();
-          await userController.updateUser(updatedUser);
+        if (isSavedOnServer) {
+          final Map<String, dynamic> updatedUser = Map.from(currentUser);
+          updatedUser['name'] = _usernameController.text.trim();
+          updatedUser['email'] = _emailController.text.trim();
+          if (_passwordController.text.isNotEmpty) {
+            updatedUser['passwordHash'] = _passwordController.text;
+          }
 
           // Update in Provider
           userProvider.setUser(updatedUser);
@@ -118,36 +99,19 @@ class _AccountScreenState extends State<AccountScreen> {
             _isLoading = false;
           });
 
-          if (isSavedOnServer) {
-            NotificationService().showNotification(
-              id: 10,
-              title: "Cập nhật tài khoản",
-              body: "Thông tin tài khoản đăng nhập đã được thay đổi thành công.",
+          NotificationService().showNotification(
+            id: 10,
+            title: "Cập nhật tài khoản",
+            body: "Thông tin tài khoản đăng nhập đã được thay đổi thành công.",
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Cập nhật thông tin tài khoản thành công! 🎉"),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+              ),
             );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Cập nhật thông tin tài khoản thành công! 🎉"),
-                  backgroundColor: Colors.green,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          } else {
-            NotificationService().showNotification(
-              id: 11,
-              title: "Lưu tạm thời (Offline)",
-              body: "Đã lưu tài khoản cục bộ. Không thể kết nối tới máy chủ.",
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Lưu tài khoản ngoại tuyến thành công. Không thể kết nối với máy chủ."),
-                  backgroundColor: Colors.blueGrey,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
           }
 
           if (!mounted) return;

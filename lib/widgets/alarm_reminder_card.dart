@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/data/database_helper.dart';
-import 'package:frontend/data/controller/water_controller.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/sound_service.dart';
 import 'package:frontend/services/notification_service.dart';
 
@@ -26,6 +25,34 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
   bool _isLoading = true;
   bool _isSaving = false;
 
+  static const Map<String, Map<String, dynamic>> reminderConfigs = {
+    'vitals': {
+      'id': 100,
+      'title': 'Nhắc nhở: Sinh hiệu',
+      'body': 'Đã đến giờ đo huyết áp, nhịp tim và đường huyết hôm nay rồi. Hãy ghi lại nhé!',
+    },
+    'activity': {
+      'id': 101,
+      'title': 'Nhắc nhở: Hoạt động',
+      'body': 'Đừng quên ghi nhận số bước chân và thời gian vận động của bạn hôm nay!',
+    },
+    'sleep': {
+      'id': 102,
+      'title': 'Nhắc nhở: Giấc ngủ',
+      'body': 'Hãy cập nhật giờ ngủ và thức giấc hôm nay để theo dõi chất lượng giấc ngủ nhé.',
+    },
+    'nutrition': {
+      'id': 103,
+      'title': 'Nhắc nhở: Dinh dưỡng',
+      'body': 'Hãy ghi chép lại các món ăn bạn đã dùng hôm nay để kiểm soát lượng calo.',
+    },
+    'water': {
+      'id': 104,
+      'title': 'Nhắc nhở: Uống nước',
+      'body': 'Uống nước thôi nào! Hãy uống một cốc nước để thanh lọc cơ thể nhé.',
+    },
+  };
+
   @override
   void initState() {
     super.initState();
@@ -34,10 +61,15 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
 
   Future<void> _loadSetting() async {
     try {
-      final setting = await DatabaseHelper().getReminder(
-        widget.userId,
-        widget.type,
-      );
+      final list = await ApiService.getRemindersByUser(widget.userId);
+      Map<String, dynamic>? setting;
+      for (var item in list) {
+        if (item is Map<String, dynamic> && item['type'].toString().toLowerCase() == widget.type.toLowerCase()) {
+          setting = item;
+          break;
+        }
+      }
+
       if (mounted) {
         if (setting != null) {
           final String timeStr = setting['time'] ?? '08:00';
@@ -49,7 +81,7 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
             minute = int.tryParse(parts[1]) ?? 0;
           }
           setState(() {
-            _isEnabled = (setting['is_enabled'] ?? 1) == 1;
+            _isEnabled = setting?['isEnabled'] ?? false;
             _selectedTime = TimeOfDay(hour: hour, minute: minute);
             _isLoading = false;
           });
@@ -57,43 +89,9 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
           setState(() => _isLoading = false);
         }
       }
-
-      // Đồng bộ từ server dưới nền
-      _syncReminderFromServer();
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
       print('[AlarmReminderCard] _loadSetting lỗi: $e');
-    }
-  }
-
-  Future<void> _syncReminderFromServer() async {
-    try {
-      await WaterController().refreshRemindersFromServer(widget.userId);
-      final newSetting = await DatabaseHelper().getReminder(
-        widget.userId,
-        widget.type,
-      );
-      if (newSetting != null && mounted) {
-        final String timeStr = newSetting['time'] ?? '08:00';
-        final parts = timeStr.split(':');
-        int hour = 8;
-        int minute = 0;
-        if (parts.length == 2) {
-          hour = int.tryParse(parts[0]) ?? 8;
-          minute = int.tryParse(parts[1]) ?? 0;
-        }
-        final bool isEnabled = (newSetting['is_enabled'] ?? 1) == 1;
-        final TimeOfDay timeOfDay = TimeOfDay(hour: hour, minute: minute);
-
-        if (_isEnabled != isEnabled || _selectedTime != timeOfDay) {
-          setState(() {
-            _isEnabled = isEnabled;
-            _selectedTime = timeOfDay;
-          });
-        }
-      }
-    } catch (e) {
-      print('[AlarmReminderCard] _syncReminderFromServer lỗi: $e');
     }
   }
 
@@ -102,21 +100,43 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
     setState(() => _isSaving = true);
 
     try {
-      // Đảm bảo NotificationService đã được khởi tạo
       await NotificationService().init();
 
       final String timeStr =
           '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
 
-      // Gọi controller để lưu cài đặt & lên lịch thông báo
-      await WaterController().saveReminderSetting(
-        userId: widget.userId,
-        type: widget.type,
-        time: timeStr,
-        isEnabled: _isEnabled,
-      );
+      await ApiService.saveReminder({
+        'userId': widget.userId,
+        'type': widget.type,
+        'time': timeStr,
+        'isEnabled': _isEnabled,
+      });
 
-      // Phát âm thanh báo thành công tương tự như baikt
+      final config = reminderConfigs[widget.type.toLowerCase()];
+      if (config != null) {
+        final int notificationId = config['id'] as int;
+        final String title = config['title'] as String;
+        final String body = config['body'] as String;
+
+        if (_isEnabled) {
+          await NotificationService().scheduleDailyNotification(
+            id: notificationId,
+            title: title,
+            body: body,
+            hour: _selectedTime.hour,
+            minute: _selectedTime.minute,
+          );
+
+          await NotificationService().showNotification(
+            id: notificationId + 1000,
+            title: '🔔 Đã kích hoạt nhắc nhở thành công',
+            body: 'Hệ thống sẽ thông báo nhắc nhở $timeStr hàng ngày!',
+          );
+        } else {
+          await NotificationService().cancelNotification(notificationId);
+        }
+      }
+
       await SoundService.playSuccess();
 
       if (mounted) {
@@ -138,12 +158,11 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
       }
     } catch (e) {
       print('[AlarmReminderCard] _saveSetting lỗi: $e');
-      // Hoàn tác state nếu lưu thất bại
       if (mounted) {
         setState(() => _isEnabled = !_isEnabled);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Không thể lưu cài đặt nhắc nhở: $e'),
+            content: Text('Không thể lưu cài đặt nhắc nhở: ${e.toString().replaceAll("Exception: ", "").trim()}'),
             backgroundColor: Colors.red[700],
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -228,7 +247,6 @@ class _AlarmReminderCardState extends State<AlarmReminderCard> {
                   ),
                 ],
               ),
-              // Hiển thị loading khi đang lưu, ngược lại hiện Switch
               _isSaving
                   ? const SizedBox(
                       width: 36,

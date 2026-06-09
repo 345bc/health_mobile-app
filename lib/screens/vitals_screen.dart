@@ -3,8 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:frontend/provider/user_provider.dart';
-import 'package:frontend/data/database_helper.dart';
-import 'package:frontend/data/controller/log_controller.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/widgets/alarm_reminder_card.dart';
 
@@ -18,11 +17,9 @@ class VitalsScreen extends StatefulWidget {
 
 class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final DatabaseHelper _dbHelper = DatabaseHelper();
-  final LogController _logController = LogController();
-
   List<Map<String, dynamic>> _allMeasurements = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -43,34 +40,37 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    if (user == null || user.userId == null) {
+    if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
+    final int userId = user['id'] ?? user['userId'] ?? 0;
 
     try {
-      // Refresh logs from server first
-      await _logController.refreshLogsFromServer(user.userId!);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Lỗi tải chỉ số sinh hiệu từ máy chủ. Hiển thị dữ liệu ngoại tuyến (Offline)."),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      final data = await ApiService.getBodyMeasurementsByUser(userId);
+      final List<Map<String, dynamic>> normalized = [];
+      for (var item in data) {
+        if (item is Map<String, dynamic>) {
+          normalized.add({
+            'measurement_id': item['id'],
+            'user_id': userId,
+            'date': item['date'],
+            'weight': item['weight'],
+            'body_fat_percentage': item['bodyFatPercentage'],
+            'blood_pressure': item['bloodPressure'],
+            'blood_glucose': item['bloodGlucose'],
+            'heart_rate': item['heartRate'],
+          });
+        }
       }
-    }
-
-    try {
-      // Pull from local cache
-      final data = await _dbHelper.getBodyMeasurements(user.userId!);
       if (mounted) {
         setState(() {
-          _allMeasurements = data;
+          _allMeasurements = normalized;
           _isLoading = false;
         });
       }
@@ -79,6 +79,7 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
       if (mounted) {
         setState(() {
           _allMeasurements = [];
+          _errorMessage = e.toString().replaceAll("Exception: ", "").trim();
           _isLoading = false;
         });
       }
@@ -164,15 +165,45 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF0F75F4)))
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildTabContent(0),
-                _buildTabContent(1),
-                _buildTabContent(2),
-                _buildTabContent(3),
-              ],
-            ),
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Có lỗi kết nối xảy ra',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Thử lại'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: activeColor,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(150, 45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildTabContent(0),
+                    _buildTabContent(1),
+                    _buildTabContent(2),
+                    _buildTabContent(3),
+                  ],
+                ),
     );
   }
 
@@ -250,8 +281,9 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
             Builder(
               builder: (context) {
                 final user = Provider.of<UserProvider>(context, listen: false).getUser();
-                if (user != null && user.userId != null) {
-                  return AlarmReminderCard(userId: user.userId!, type: 'vitals');
+                if (user != null) {
+                  final int userId = user['id'] ?? user['userId'] ?? 0;
+                  return AlarmReminderCard(userId: userId, type: 'vitals');
                 }
                 return const SizedBox.shrink();
               },
@@ -589,7 +621,7 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
     if (confirm == true) {
       setState(() => _isLoading = true);
       try {
-        await _logController.deleteBodyMeasurement(id);
+        await ApiService.deleteBodyMeasurement(id);
         NotificationService().showNotification(
           id: 35,
           title: "Xóa thành công",
@@ -607,9 +639,9 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Đã xóa ngoại tuyến. Không thể kết nối với máy chủ để đồng bộ."),
-              backgroundColor: Colors.orange,
+            SnackBar(
+              content: Text("Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}"),
+              backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -622,7 +654,7 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
 
   void _showAddDialog(int tabIndex) {
     final user = Provider.of<UserProvider>(context, listen: false).getUser();
-    final int userId = user?.userId ?? 1;
+    final int userId = user?['id'] ?? user?['userId'] ?? 1;
 
     final controller1 = TextEditingController();
     final controller2 = TextEditingController(); // For Systolic/Diastolic BP
@@ -726,10 +758,39 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                 setState(() => _isLoading = true);
 
                 try {
+                  // Gọi GET để kiểm tra xem đã có bản ghi nào trong ngày dateStr chưa
+                  final measurements = await ApiService.getBodyMeasurementsByUser(userId);
+                  Map<String, dynamic>? existing;
+                  for (var m in measurements) {
+                    if (m is Map<String, dynamic> && m['date'] == dateStr) {
+                      existing = m;
+                      break;
+                    }
+                  }
+
+                  // Chuẩn bị data update hoặc create
+                  final Map<String, dynamic> measurementData = {
+                    'userId': userId,
+                    'date': dateStr,
+                  };
+
+                  if (existing != null) {
+                    measurementData['weight'] = existing['weight'];
+                    measurementData['bloodPressure'] = existing['bloodPressure'];
+                    measurementData['heartRate'] = existing['heartRate'];
+                    measurementData['bodyFatPercentage'] = existing['bodyFatPercentage'];
+                    measurementData['bloodGlucose'] = existing['bloodGlucose'];
+                  }
+
                   if (tabIndex == 0) {
                     final val = double.tryParse(controller1.text);
                     if (val != null) {
-                      await _logController.logWeight(userId: userId, date: dateStr, weight: val);
+                      measurementData['weight'] = val;
+                      if (existing != null) {
+                        await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                      } else {
+                        await ApiService.createBodyMeasurement(measurementData);
+                      }
                       NotificationService().showNotification(
                         id: 30,
                         title: "Ghi nhận cân nặng",
@@ -741,7 +802,12 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                     final dia = int.tryParse(controller2.text);
                     if (sys != null && dia != null) {
                       final bpText = '$sys/$dia';
-                      await _logController.logBloodPressure(userId: userId, date: dateStr, bloodPressure: bpText);
+                      measurementData['bloodPressure'] = bpText;
+                      if (existing != null) {
+                        await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                      } else {
+                        await ApiService.createBodyMeasurement(measurementData);
+                      }
                       NotificationService().showNotification(
                         id: 31,
                         title: "Ghi nhận huyết áp",
@@ -751,7 +817,12 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                   } else if (tabIndex == 2) {
                     final val = double.tryParse(controller1.text);
                     if (val != null) {
-                      await _logController.logBloodGlucose(userId: userId, date: dateStr, bloodGlucose: val);
+                      measurementData['bloodGlucose'] = val;
+                      if (existing != null) {
+                        await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                      } else {
+                        await ApiService.createBodyMeasurement(measurementData);
+                      }
                       NotificationService().showNotification(
                         id: 32,
                         title: "Ghi nhận đường huyết",
@@ -761,7 +832,12 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                   } else if (tabIndex == 3) {
                     final val = int.tryParse(controller1.text);
                     if (val != null) {
-                      await _logController.logHeartRate(userId: userId, date: dateStr, heartRate: val);
+                      measurementData['heartRate'] = val;
+                      if (existing != null) {
+                        await ApiService.updateBodyMeasurement(existing['id'], measurementData);
+                      } else {
+                        await ApiService.createBodyMeasurement(measurementData);
+                      }
                       NotificationService().showNotification(
                         id: 33,
                         title: "Ghi nhận nhịp tim",
@@ -781,9 +857,9 @@ class _VitalsScreenState extends State<VitalsScreen> with SingleTickerProviderSt
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Lưu ngoại tuyến thành công. Không thể kết nối với máy chủ để đồng bộ."),
-                        backgroundColor: Colors.blueGrey,
+                      SnackBar(
+                        content: Text("Lỗi: ${e.toString().replaceAll("Exception: ", "").trim()}"),
+                        backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                       ),
                     );

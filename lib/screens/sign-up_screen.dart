@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import 'package:frontend/data/controller/user_controller.dart';
-import 'package:frontend/data/models/user.dart';
 import 'package:frontend/screens/sign-in_screen.dart';
 import 'package:frontend/services/api_service.dart';
-import 'package:frontend/services/user-service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -19,7 +15,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
-  final UserController _userController = UserController();
 
   bool _agreeToTerms = false;
   bool _isLoading = false;
@@ -105,22 +100,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
     });
 
     try {
-      final ApiService apiService = ApiService();
-      final UserService userService = UserService(apiService);
+      final response = await ApiService.signup(email, password, name);
 
-      final response = await userService.signup(email, password, name);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        final int? serverId = response.data['data']?['id'];
-        
-        // Đăng ký thành công trên backend -> lưu vào SQLite nội bộ để hỗ trợ offline
-        final User? existingUser = await _userController.getUserByEmail(email);
-        if (existingUser == null) {
-          await _userController.insertUser(
-            User(userId: serverId, email: email, passwordHash: password, user_name: name),
-          );
-        }
-
+      if (response['statusCode'] == 201 || response['statusCode'] == 200 || response['data'] != null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -134,47 +116,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
           MaterialPageRoute(builder: (context) => const SigninScreen()),
         );
       } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Đăng ký thất bại. Vui lòng thử lại."),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        throw Exception("Đăng ký thất bại. Vui lòng thử lại.");
       }
     } catch (e) {
       if (!mounted) return;
-
-      if (e is DioException) {
-        if (e.response != null && e.response?.data is Map<String, dynamic>) {
-          final errorData = e.response!.data as Map<String, dynamic>;
-          final String serverMessage =
-              errorData['message'] ?? 'Đăng ký thất bại';
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(serverMessage),
-              backgroundColor: Colors.redAccent,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Không thể kết nối mạng hoặc máy chủ!"),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
+      String errorMessage = e.toString().replaceAll("Exception: ", "").trim();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Đã xảy ra lỗi khi tạo tài khoản: $e"),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),

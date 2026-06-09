@@ -1,14 +1,13 @@
 import 'package:flutter/foundation.dart';
-import 'package:frontend/data/models/user.dart';
 
 class UserProvider with ChangeNotifier {
-  User? _currentUser;
+  Map<String, dynamic>? _currentUser;
 
-  User? getUser() {
+  Map<String, dynamic>? getUser() {
     return _currentUser;
   }
 
-  void setUser(User user) {
+  void setUser(Map<String, dynamic> user) {
     _currentUser = user;
     notifyListeners();
   }
